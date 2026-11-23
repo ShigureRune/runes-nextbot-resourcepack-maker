@@ -25,6 +25,18 @@ app.innerHTML = `
     <p id="slot-state" class="note" aria-live="polite"></p>
     <p id="image-name" class="note"></p>
     <p id="sound-name" class="note"></p>
+    <section id="audio-editor" class="image-editor" hidden aria-label="音声の試聴と範囲指定">
+      <h3>音声編集（段階06・試聴）</h3>
+      <p class="note">登録済みOGG Vorbisの試聴と開始・終了位置の指定。範囲指定はプレビュー専用で、切り抜きファイルの保存はエンコーダ実装まで行いません。</p>
+      <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
+      <div class="fields">
+        <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.1" value="0"></label>
+        <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.1" value="0"></label>
+      </div>
+      <p id="audio-range-status" class="note" role="status"></p>
+      <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
+      <p class="warning">MP3入力と実際のOGG Vorbis変換は未実装です。音声を偽装変換しません。</p>
+    </section>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <section id="image-editor" class="image-editor" hidden aria-label="PNG画像編集">
       <h3>画像編集（PNG）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
@@ -94,6 +106,73 @@ for (let id = 1; id <= SLOT_COUNT; id++) {
 const nameInput = get<HTMLInputElement>('bot-name');
 const imageInput = get<HTMLInputElement>('image');
 const soundInput = get<HTMLInputElement>('sound');
+const audioEditor = get<HTMLElement>('audio-editor');
+const audioPreview = get<HTMLAudioElement>('audio-preview');
+const audioStart = get<HTMLInputElement>('audio-start');
+const audioEnd = get<HTMLInputElement>('audio-end');
+const audioRangeStatus = get<HTMLElement>('audio-range-status');
+let audioPreviewUrl: string | null = null;
+let audioPreviewBlob: Blob | null = null;
+let rangePlayback = false;
+function stopAudioPreview(): void {
+  rangePlayback = false;
+  audioPreview.pause();
+}
+function renderAudioEditor(id: number): void {
+  const blob = store.get(id).audio?.processed?.ogg ?? null;
+  audioEditor.hidden = !blob;
+  if (blob === audioPreviewBlob) return;
+  stopAudioPreview();
+  if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+  audioPreviewUrl = null;
+  audioPreviewBlob = blob;
+  audioStart.value = '0';
+  audioEnd.value = '0';
+  audioRangeStatus.textContent = blob ? '音声の長さを読み込み中…' : '';
+  if (blob) {
+    audioPreviewUrl = URL.createObjectURL(blob);
+    audioPreview.src = audioPreviewUrl;
+    audioPreview.load();
+  } else {
+    audioPreview.removeAttribute('src');
+    audioPreview.load();
+  }
+}
+audioPreview.addEventListener('loadedmetadata', () => {
+  if (!Number.isFinite(audioPreview.duration)) {
+    audioRangeStatus.textContent = '音声の長さを取得できません。';
+    return;
+  }
+  audioEnd.value = String(Math.round(audioPreview.duration * 10) / 10);
+  audioRangeStatus.textContent = '長さ：' + audioPreview.duration.toFixed(2) + '秒';
+});
+audioPreview.addEventListener('timeupdate', () => {
+  if (rangePlayback && audioPreview.currentTime >= Number(audioEnd.value)) stopAudioPreview();
+});
+audioPreview.addEventListener('ended', stopAudioPreview);
+get<HTMLButtonElement>('play-audio-range').addEventListener('click', async () => {
+  const start = Number(audioStart.value), end = Number(audioEnd.value), duration = audioPreview.duration;
+  if (!Number.isFinite(duration) || !Number.isFinite(start) || !Number.isFinite(end) ||
+      start < 0 || end <= start || end > duration + 0.05) {
+    audioRangeStatus.textContent = '開始・終了位置を音声の長さの範囲内で指定してください。';
+    return;
+  }
+  stopAudioPreview();
+  audioPreview.currentTime = start;
+  rangePlayback = true;
+  try {
+    await audioPreview.play();
+    audioRangeStatus.textContent = start.toFixed(1) + '〜' + end.toFixed(1) + '秒を試聴中（保存は未対応）';
+  } catch {
+    rangePlayback = false;
+    audioRangeStatus.textContent = '試聴を開始できませんでした。ブラウザの音声設定を確認してください。';
+  }
+});
+window.addEventListener('pagehide', () => {
+  stopAudioPreview();
+  if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+});
+
 const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
@@ -254,6 +333,7 @@ function openEditor(id: number): void {
   editorPanel.scrollIntoView({ block: 'start' });
 }
 function showInventory(): void {
+  stopAudioPreview();
   editorPanel.hidden = true;
   inventoryRoot.hidden = false;
   if (inventoryHelp) inventoryHelp.hidden = false;
@@ -294,6 +374,7 @@ function render(): void {
       ? `設定途中の${summary.partial}枠を完成させるか削除すると書き出し条件を満たせます。`
       : '少なくとも1枠に画像と音声を揃えてください。';
   void renderImageEditor(slot.id);
+  renderAudioEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   if (slot.visual?.processed?.png) {
