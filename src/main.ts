@@ -10,7 +10,7 @@ app.innerHTML = `
   <section class="panel"><h2>オリジナルNextbotを作成</h2>
     <div class="fields">
       <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot" value="My Nextbot"></label>
-      <label>登録スロット（1〜100）<select id="slot"></select></label>
+      <label>登録スロット（1〜99）<select id="slot"></select></label>
       <label>顔画像（PNG）<input id="image" type="file" accept=".png,image/png"></label>
       <label>音声（OGG Vorbis・任意）<input id="sound" type="file" accept=".ogg,audio/ogg"></label>
     </div>
@@ -31,7 +31,7 @@ const get = <T extends HTMLElement>(id: string) => {
   return element as T;
 };
 const slot = get<HTMLSelectElement>('slot');
-for (let i = 1; i <= 100; i++) slot.add(new Option(`Slot ${String(i).padStart(3, '0')}`, String(i)));
+for (let i = 1; i <= 99; i++) slot.add(new Option(`Slot ${String(i).padStart(3, '0')}`, String(i)));
 const imageInput = get<HTMLInputElement>('image');
 const soundInput = get<HTMLInputElement>('sound');
 const preview = get<HTMLImageElement>('preview');
