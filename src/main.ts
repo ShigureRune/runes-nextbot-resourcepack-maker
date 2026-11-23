@@ -6,6 +6,7 @@ import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } fr
 import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
+import { inspectGif, processGif } from './gifEditor';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -17,11 +18,11 @@ app.innerHTML = `
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
   <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>Nextbot専用編集画面</h2>
-    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG、音声はOGG VorbisまたはMP3に対応。MP3はVorbisへの変換が必要です。</p>
+    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG・GIF、音声はOGG Vorbis・MP3に対応。MP3とGIFは編集・変換の適用が必要です。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
       <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
-      <label>顔画像（PNG）<input id="image" type="file" accept=".png,image/png"></label>
+      <label>顔画像（PNG / GIF）<input id="image" type="file" accept=".png,.gif,image/png,image/gif"></label>
       <label>音声（MP3 / OGG Vorbis）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
     </div>
     <p id="slot-state" class="note" aria-live="polite"></p>
@@ -45,7 +46,7 @@ app.innerHTML = `
     </section>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <section id="image-editor" class="image-editor" hidden aria-label="PNG画像編集">
-      <h3>画像編集（PNG）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
+      <h3>画像編集（PNG / GIF）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
       <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
@@ -57,6 +58,14 @@ app.innerHTML = `
         <label>許容範囲<input id="key-tolerance" type="range" min="0" max="255" value="45"></label>
         <label>境界のぼかし<input id="key-feather" type="range" min="0" max="100" value="20"></label>
         <label>出力サイズ<select id="image-resolution"><option value="256">256×256</option><option value="128">128×128</option></select></label>
+      </div>
+      <div id="gif-range" hidden>
+        <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
+        <div class="fields">
+          <label>GIF開始フレーム（1から）<input id="gif-start" type="number" min="1" step="1" value="1"></label>
+          <label>GIF終了フレーム（含む）<input id="gif-end" type="number" min="1" step="1" value="1"></label>
+        </div>
+        <p class="note">GIFの全フレームに同じ切り抜き・クロマキーを適用します。最大24フレーム。再生速度は50ms単位に変換されます。</p>
       </div>
       <p class="note" id="crop-info"></p>
       <button type="button" id="apply-image">画像編集を適用</button>
@@ -303,13 +312,15 @@ function schedulePreview(): void {
 async function renderImageEditor(id: number): Promise<void> {
   const token = ++editToken;
   const slot = store.get(id);
-  if (!slot.visual || slot.visual.sourceFormat !== 'png') {
+  if (!slot.visual || (slot.visual.sourceFormat !== 'png' && slot.visual.sourceFormat !== 'gif')) {
     imageEditorPanel.hidden = true;
+    get<HTMLElement>('gif-range').hidden = true;
     clearTimeout(previewTimer); ++previewVersion;
     activeBitmap?.close(); activeBitmap = null; bitmapSource = null;
     return;
   }
   imageEditorPanel.hidden = false;
+  get<HTMLElement>('gif-range').hidden = slot.visual.sourceFormat !== 'gif';
   if (bitmapSlot === id && bitmapSource === slot.visual.source && activeBitmap) { updateCropInfo(); return; }
   activeBitmap?.close(); activeBitmap = null;
   imageEditStatus.textContent = '元画像を読み込み中…';
@@ -321,6 +332,13 @@ async function renderImageEditor(id: number): Promise<void> {
     const defaults = defaultImageSettings(bitmap.width, bitmap.height);
     for (const [key, value] of Object.entries({ 'crop-x': defaults.x, 'crop-y': defaults.y, 'crop-width': defaults.width, 'crop-height': defaults.height })) {
       get<HTMLInputElement>(key).value = String(value);
+    }
+    if (slot.visual.sourceFormat === 'gif') {
+      const info = await inspectGif(slot.visual.source);
+      if (token !== editToken || currentSlot() !== id) return;
+      get<HTMLInputElement>('gif-start').value = '1';
+      get<HTMLInputElement>('gif-end').value = String(info.count);
+      get<HTMLElement>('gif-info').textContent = `GIF：${info.width}×${info.height}px、${info.count}フレーム`;
     }
     updateCropInfo();
     imageEditStatus.textContent = '範囲を指定して「画像編集を適用」を押してください。';
@@ -375,12 +393,27 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
   const button = get<HTMLButtonElement>('apply-image');
   button.disabled = true; imageEditStatus.textContent = 'PNGを処理中…';
   try {
-    const png = await processPng(bitmap, imageSettings());
-    if (id !== currentSlot() || source !== store.get(id).visual?.source) return;
     const visual = store.get(id).visual!;
-    store.update(id, { visual: { ...visual, processed: { png } } });
-    render(); queueSave();
-    imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
+    if (visual.sourceFormat === 'gif') {
+      const result = await processGif(visual.source, imageSettings(), {
+        first: Number(get<HTMLInputElement>('gif-start').value),
+        last: Number(get<HTMLInputElement>('gif-end').value),
+      }, fraction => {
+        if (currentSlot() === id) imageEditStatus.textContent = 'GIF変換中…' + Math.round(fraction * 100) + '%';
+      });
+      if (id !== currentSlot() || source !== store.get(id).visual?.source) return;
+      store.update(id, { visual: { ...visual, processed: {
+        png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+      } } });
+      render(); queueSave();
+      imageEditStatus.textContent = `GIF ${result.frameCount}フレームのアニメーションPNGを登録しました。`;
+    } else {
+      const png = await processPng(bitmap, imageSettings());
+      if (id !== currentSlot() || source !== store.get(id).visual?.source) return;
+      store.update(id, { visual: { ...visual, processed: { png } } });
+      render(); queueSave();
+      imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
+    }
   } catch (error) {
     imageEditStatus.textContent = error instanceof Error ? error.message : '画像処理に失敗しました。';
   } finally { button.disabled = false; }
@@ -454,7 +487,7 @@ function render(): void {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   if (slot.visual?.processed?.png) {
-    previewUrl = URL.createObjectURL(slot.visual.processed.png);
+    previewUrl = URL.createObjectURL(slot.visual.processed.previewPng ?? slot.visual.processed.png);
     preview.src = previewUrl;
     preview.hidden = false;
     previewLabel.textContent = '登録済み画像';
@@ -512,30 +545,29 @@ imageInput.addEventListener('change', async () => {
   const id = currentSlot();
   feedback.textContent = '画像の形式を確認中…';
   try {
-    if (!file.name.toLowerCase().endsWith('.png') || !(await isPng(file))) {
-      throw new Error('PNG形式として読み取れません。PNG画像を選択してください。');
-    }
-    // Bound memory use before creating full-resolution canvases on mobile devices.
-    if (file.size > 16 * 1024 * 1024) {
-      throw new Error('PNGは16MB以下の画像を選択してください。');
-    }
-    const bitmap = await createImageBitmap(file);
-    try {
-      if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
-        throw new Error('画像が大きすぎます。各辺4096px以下、合計800万画素以下にしてください。');
+    if (file.name.toLowerCase().endsWith('.gif')) {
+      const info = await inspectGif(file);
+      store.update(id, { visual: {
+        sourceName: file.name, sourceFormat: 'gif', source: file, processed: null,
+      } });
+      feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を読み込みました。編集適用後に完成扱いになります。`;
+    } else {
+      if (!file.name.toLowerCase().endsWith('.png') || !(await isPng(file))) {
+        throw new Error('PNGまたはGIF画像を選択してください。');
       }
-    } finally {
-      bitmap.close();
+      if (file.size > 16 * 1024 * 1024) throw new Error('PNGは16MiB以下にしてください。');
+      const bitmap = await createImageBitmap(file);
+      try {
+        if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
+          throw new Error('PNGが大きすぎます。各辺4096px以下、合計800万画素以下にしてください。');
+        }
+      } finally { bitmap.close(); }
+      store.update(id, { visual: {
+        sourceName: file.name, sourceFormat: 'png', source: file, processed: { png: file },
+      } });
+      feedback.textContent = `Slot ${id}にPNGを登録しました。`;
     }
-    store.update(id, {
-      visual: {
-        sourceName: file.name,
-        sourceFormat: 'png',
-        source: file,
-        processed: { png: file },
-      },
-    });
-    feedback.textContent = `Slot ${id}に画像を登録しました。`;
+
   } catch (error) {
     feedback.textContent = error instanceof Error ? error.message : '画像を読み取れませんでした。';
   }
