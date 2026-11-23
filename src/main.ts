@@ -215,6 +215,7 @@ soundInput.addEventListener('change', async () => {
   }
   if (currentSlot() === id) render();
   else inventory.render(currentSlot());
+  queueSave();
 });
 
 get<HTMLButtonElement>('remove-image').addEventListener('click', () => {
