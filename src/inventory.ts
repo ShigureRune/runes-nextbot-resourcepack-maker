@@ -91,7 +91,7 @@ export function mountInventory(
       button.setAttribute('aria-label', 'Slot ' + String(slot.id).padStart(2, '0') + '：' + statusNames[state] + (slot.name ? '、' + slot.name : ''));
       button.replaceChildren();
       const cached = urls.get(slot.id);
-      const png = slot.visual?.processed?.png;
+      const png = slot.visual?.processed?.previewPng ?? slot.visual?.processed?.png;
       if (!png && cached) {
         URL.revokeObjectURL(cached.url);
         urls.delete(slot.id);
