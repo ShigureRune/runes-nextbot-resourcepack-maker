@@ -1,6 +1,7 @@
 import { isOggVorbis, isPng } from './assetValidation';
 import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
 import { mountInventory } from './inventory';
+import { loadSlots, saveSlots } from './persistence';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -24,7 +25,7 @@ app.innerHTML = `
     <p id="sound-name" class="note"></p>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
-    <p class="note">段階04までは編集中のデータはメモリ内のみ。ページを更新すると消えます。</p>
+    <p id="save-state" class="note" role="status" aria-live="polite">保存データを読み込み中…</p>
     <p id="feedback" class="status" role="status" aria-live="polite"></p>
   </section>
   <section class="panel"><h2>99枠の集計</h2>
@@ -43,6 +44,28 @@ function get<T extends HTMLElement>(id: string): T {
 }
 
 const store = new NextbotSlotStore();
+const saveState = get<HTMLParagraphElement>('save-state');
+let ready = false;
+let revision = 0;
+let savedRevision = 0;
+let saveQueue = Promise.resolve();
+
+function queueSave(): void {
+  if (!ready) return;
+  const version = ++revision;
+  const snapshot = store.list();
+  saveState.textContent = '端末に保存中…';
+  saveQueue = saveQueue.catch(() => undefined).then(async () => {
+    try {
+      await saveSlots(snapshot);
+      savedRevision = version;
+      if (savedRevision === revision) saveState.textContent = 'この端末に保存済み';
+    } catch (error) {
+      saveState.textContent = '保存失敗：空き容量やブラウザの設定を確認してください。' + (error instanceof Error ? ' ' + error.message : '');
+    }
+  });
+}
+
 const slotSelect = get<HTMLSelectElement>('slot');
 for (let id = 1; id <= SLOT_COUNT; id++) {
   slotSelect.add(new Option(`Slot ${String(id).padStart(2, '0')}`, String(id)));
@@ -140,6 +163,7 @@ slotSelect.addEventListener('change', () => {
 nameInput.addEventListener('input', () => {
   store.update(currentSlot(), { name: nameInput.value });
   inventory.render(currentSlot());
+  queueSave();
 });
 
 imageInput.addEventListener('change', async () => {
@@ -165,6 +189,7 @@ imageInput.addEventListener('change', async () => {
   }
   if (currentSlot() === id) render();
   else inventory.render(currentSlot());
+  queueSave();
 });
 
 soundInput.addEventListener('change', async () => {
@@ -196,11 +221,13 @@ get<HTMLButtonElement>('remove-image').addEventListener('click', () => {
   store.update(currentSlot(), { visual: null });
   feedback.textContent = '画像を削除しました。';
   render();
+  queueSave();
 });
 get<HTMLButtonElement>('remove-sound').addEventListener('click', () => {
   store.update(currentSlot(), { audio: null });
   feedback.textContent = '音声を削除しました。';
   render();
+  queueSave();
 });
 
 get<HTMLButtonElement>('clear-slot').addEventListener('click', () => {
@@ -209,6 +236,26 @@ get<HTMLButtonElement>('clear-slot').addEventListener('click', () => {
   store.clear(id);
   feedback.textContent = `Slot ${id}を未設定に戻しました。`;
   render();
+  queueSave();
 });
 
-render();
+async function initialize(): Promise<void> {
+  // Avoid overwriting saved data while the initial asynchronous read is pending.
+  app!.style.pointerEvents = 'none';
+  try {
+    const saved = await loadSlots();
+    for (const slot of saved) {
+      if (Number.isInteger(slot.id) && slot.id >= 1 && slot.id <= SLOT_COUNT) {
+        store.update(slot.id, { name: slot.name ?? '', visual: slot.visual ?? null, audio: slot.audio ?? null });
+      }
+    }
+    saveState.textContent = `この端末から${saved.length}枠のデータを復元しました。`;
+  } catch (error) {
+    saveState.textContent = '保存機能を利用できません。プライベートモードや容量を確認してください。' + (error instanceof Error ? ' ' + error.message : '');
+  } finally {
+    ready = true;
+    app!.style.pointerEvents = '';
+    render();
+  }
+}
+void initialize();
