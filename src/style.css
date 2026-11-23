@@ -15,3 +15,6 @@
 .image-editor input[type=checkbox]{width:24px;height:24px}
 .image-editor input[type=color]{height:46px;padding:4px}
 .image-editor input[type=range]{padding:0}
+
+#source-canvas{touch-action:none;user-select:none}
+#processed-preview{cursor:default;max-height:256px}
