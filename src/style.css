@@ -18,3 +18,6 @@
 
 #source-canvas{touch-action:none;user-select:none}
 #processed-preview{cursor:default;max-height:256px}
+
+/* Stage 06: audio waveform is scaled to fit narrow screens. */
+.audio-waveform{display:block;width:100%;height:auto;max-height:140px;border:1px solid #53627e;border-radius:8px;margin:12px 0}
