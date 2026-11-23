@@ -8,7 +8,7 @@
 .nb-panel-title{font:900 1rem ui-monospace,monospace}
 .nb-count{font:850 .75rem ui-monospace,monospace;color:#404040;white-space:nowrap}
 .nb-frame{display:grid;grid-template-columns:minmax(0,1fr) 15px;gap:10px}
-.nb-scroll-area{width:100%;aspect-ratio:9/5.3;max-height:355px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;background:#8b8b8b;border:4px solid;border-color:#575757 #f0f0f0 #f0f0f0 #575757;scrollbar-width:none}
+.nb-scroll-area{width:100%;aspect-ratio:9/5.3;max-height:355px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:none;overscroll-behavior-y:none;background:#8b8b8b;border:4px solid;border-color:#575757 #f0f0f0 #f0f0f0 #575757;scrollbar-width:none}
 .nb-scroll-area::-webkit-scrollbar{display:none}
 .nb-grid{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:2px;padding:2px;background:#8b8b8b}
 .nb-slot{display:flex;align-items:center;justify-content:center;position:relative;min-width:0;min-height:0;width:100%;aspect-ratio:1;padding:0;border-radius:0;border:3px solid;border-color:#505050 #dfdfdf #dfdfdf #505050;background:#898989;color:#f7f7f7;font:900 clamp(8px,1.9vw,13px)/1 ui-monospace,monospace;cursor:pointer;overflow:hidden;touch-action:manipulation;text-shadow:1px 1px 0 #555;box-shadow:none;transition:none}
@@ -21,7 +21,7 @@
 .nb-face{width:100%;height:100%;object-fit:contain;image-rendering:pixelated}
 .nb-check{position:absolute;right:0;bottom:0;background:#286b2c;color:white;font-size:10px;line-height:1.05;padding:1px 3px}
 .nb-partial-mark{position:absolute;top:0;right:0;background:#ffe1a0;color:#301e0b;font-size:10px;line-height:1.05;padding:1px 3px}
-.nb-scroll-rail{position:relative;min-height:0;background:#898989;border:3px solid;border-color:#555 #eee #eee #555}
+.nb-scroll-rail{position:relative;min-height:0;overflow:hidden;isolation:isolate;background:#898989;border:3px solid;border-color:#555 #eee #eee #555}
 .nb-scroll-thumb{position:absolute;left:0;right:0;top:0;height:42%;background:#d3d3d3;border:2px solid;border-color:#fff #686868 #686868 #fff}
 .nb-legend{display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap;font-size:.73rem;color:#333}
 .nb-legend span{display:flex;align-items:center;gap:5px}
@@ -30,3 +30,7 @@
 .nb-dot.nb-complete{background:#6fbd80}
 .nb-selection-hint{margin-top:13px;padding:9px 10px;font:800 .78rem/1.5 ui-monospace,monospace;border:3px solid;border-color:#707070 #eee #eee #707070;background:#a9a9a9;overflow-wrap:anywhere}
 @media(max-width:430px){#inventory-root{margin:14px -5px 20px}.nb-panel{padding:12px 8px 11px;border-width:4px}.nb-tab{min-height:35px;padding:5px 10px;font-size:.75rem}.nb-frame{grid-template-columns:minmax(0,1fr) 10px;gap:5px}.nb-scroll-area{border-width:3px;aspect-ratio:9/5.45}.nb-grid{gap:1px;padding:1px}.nb-slot{border-width:2px;font-size:9px}.nb-count{font-size:.65rem}.nb-legend{font-size:.67rem}}
+
+/* iOS touch/rubber-band safeguard: keep decorative thumb strictly clipped to the track. */
+.nb-scroll-area{touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.nb-scroll-rail,.nb-frame{max-height:100%}

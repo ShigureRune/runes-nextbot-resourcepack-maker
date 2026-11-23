@@ -1,6 +1,7 @@
 
 import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
 import type { SlotStatus } from './slots';
+import { scrollGeometry } from './scrollBounds';
 import './inventory.css';
 
 /** Custom CSS inspired by Minecraft's 9-column creative inventory. */
@@ -53,14 +54,14 @@ export function mountInventory(
   };
 
   function updateRail(): void {
-    const contentHeight = scroll.scrollHeight;
-    const viewHeight = scroll.clientHeight;
-    const visibleFraction = contentHeight > 0 ? Math.min(1, viewHeight / contentHeight) : 1;
-    const maxScroll = Math.max(0, contentHeight - viewHeight);
-    const ratio = maxScroll > 0 ? scroll.scrollTop / maxScroll : 0;
-    const height = Math.max(8, visibleFraction * 100);
-    thumb.style.height = String(height) + '%';
-    thumb.style.top = String(ratio * (100 - height)) + '%';
+    const geometry = scrollGeometry(scroll.scrollHeight, scroll.clientHeight, scroll.scrollTop);
+    // iOS Safari can expose negative / beyond-end scrollTop during elastic overscroll.
+    // Clamp the actual scroll position and keep the decorative thumb in its rail.
+    if (Math.abs(scroll.scrollTop - geometry.clampedScrollTop) > 0.5) {
+      scroll.scrollTop = geometry.clampedScrollTop;
+    }
+    thumb.style.height = String(geometry.heightPercent) + '%';
+    thumb.style.top = String(geometry.topPercent) + '%';
   }
 
   function imageUrl(id: number, blob: Blob): string {
