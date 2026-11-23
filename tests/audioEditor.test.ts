@@ -13,6 +13,6 @@ test('invalid, reversed and out-of-bounds audio ranges are rejected', () => {
   assert.throws(() => sampleRange({ start: 0, end: MAX_AUDIO_SECONDS + 1 }, MAX_AUDIO_SECONDS + 5, 44100), RangeError);
 });
 test('waveform peaks are bounded, per-column magnitudes', () => {
-  assert.deepEqual(waveformPeaks(new Float32Array([0, -0.5, 0.25, 1, 0.1, -0.1]), 3), [0.5, 1, 0.1]);
+  assert.deepEqual(waveformPeaks(new Float32Array([0, -0.5, 0.25, 1, 0.1, -0.1]), 3).map(x => Number(x.toFixed(2))), [0.5, 1, 0.1]);
   assert.deepEqual(waveformPeaks(new Float32Array([]), 2), [0, 0]);
 });
