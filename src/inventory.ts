@@ -10,7 +10,7 @@ export function mountInventory(
   onSelect: (id: number) => void,
 ): { render: (selectedId: number) => void } {
   root.innerHTML = [
-    '<div class="nb-tabs"><span class="nb-tab nb-tab-active" aria-hidden="true">◈ NEXTBOTS</span></div>',
+    '<div class="nb-tabs"><span class="nb-tab nb-tab-active" aria-hidden="true">▣ NEXTBOTS</span></div>',
     '<div class="nb-panel">',
     '<div class="nb-panel-header"><span class="nb-panel-title">Nextbot 一覧</span>',
     '<span id="nb-inventory-count" class="nb-count">0 / 99</span></div>',

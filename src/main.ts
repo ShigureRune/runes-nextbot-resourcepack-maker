@@ -15,11 +15,12 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot</h1><p class="subtitle">Resource Pack Maker · TypeScript Edition</p></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
-  <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>Nextbot専用編集画面</h2>
-    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG・GIF・動画に対応。動画はフレームを取り出してから画像編集を適用してください。音声はOGG Vorbis・MP3に対応。</p>
+  <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>スロットの編集</h2>
+    <section class="setup-block" aria-label="基本設定と素材登録"><h3>01 · 基本設定と素材登録</h3>
+    <p class="note">素材を選んで登録。GIF・MP3・動画は編集・変換後に完成扱いになります。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
       <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
@@ -28,36 +29,10 @@ app.innerHTML = `
     </div>
     <p id="slot-state" class="note" aria-live="polite"></p>
     <p id="image-name" class="note"></p>
-    <p id="sound-name" class="note"></p>
-    <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
-      <h3>音声編集（MP3 / OGG Vorbis）</h3>
-      <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
-      <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
-      <canvas id="audio-waveform" width="640" height="100" class="audio-waveform" aria-label="音声波形と切り抜き範囲"></canvas>
-      <div class="fields">
-        <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.01" value="0"></label>
-        <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.01" value="0"></label>
-      </div>
-      <p id="audio-range-status" class="note" role="status"></p>
-      <div class="editor-actions">
-        <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
-        <button id="apply-audio" type="button">切り抜いてOGG保存</button>
-      </div>
-      <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
-    </section>
-    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
-      <h3>動画→静止画（段階09）</h3>
-      <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
-      <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
-      <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
-      <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
-      <button id="capture-video" type="button">このフレームを画像編集へ</button>
-      <p id="video-status" class="note" role="status" aria-live="polite"></p>
-      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
-    </section>
+    <p id="sound-name" class="note"></p></section>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
-      <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
+      <h3>02 · 画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
       <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
@@ -82,7 +57,33 @@ app.innerHTML = `
       <button type="button" id="apply-image">画像編集を適用</button>
       <p id="image-edit-status" class="note" role="status"></p>
     </section>
-    <div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
+    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
+      <h3>03 · 動画から静止画</h3>
+      <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
+      <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
+      <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
+      <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
+      <button id="capture-video" type="button">このフレームを画像編集へ</button>
+      <p id="video-status" class="note" role="status" aria-live="polite"></p>
+      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
+    </section>
+    <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
+      <h3>04 · 音声編集（MP3 / OGG Vorbis）</h3>
+      <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
+      <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
+      <canvas id="audio-waveform" width="640" height="100" class="audio-waveform" aria-label="音声波形と切り抜き範囲"></canvas>
+      <div class="fields">
+        <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.01" value="0"></label>
+        <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.01" value="0"></label>
+      </div>
+      <p id="audio-range-status" class="note" role="status"></p>
+      <div class="editor-actions">
+        <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
+        <button id="apply-audio" type="button">切り抜いてOGG保存</button>
+      </div>
+      <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
+    </section>
+    <h3 class="danger-heading">素材の削除</h3><div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
     <p id="save-state" class="note" role="status" aria-live="polite">保存データを読み込み中…</p>
     <p id="feedback" class="status" role="status" aria-live="polite"></p>
   </section>
@@ -113,13 +114,15 @@ function queueSave(): void {
   const version = ++revision;
   const snapshot = store.list();
   saveState.textContent = '端末に保存中…';
+  saveState.dataset.status = 'saving';
   saveQueue = saveQueue.catch(() => undefined).then(async () => {
     try {
       await saveSlots(snapshot);
       savedRevision = version;
-      if (savedRevision === revision) saveState.textContent = 'この端末に保存済み';
+      if (savedRevision === revision) { saveState.textContent = 'この端末に保存済み'; saveState.dataset.status = 'saved'; }
     } catch (error) {
       saveState.textContent = '保存失敗：空き容量やブラウザの設定を確認してください。' + (error instanceof Error ? ' ' + error.message : '');
+      saveState.dataset.status = 'error';
     }
   });
 }
@@ -593,6 +596,7 @@ function render(): void {
   imageInput.value = '';
   soundInput.value = '';
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
+  slotState.dataset.state = state;
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${slot.visual?.sourceFormat === 'video' ? (slot.visual.processed ? '（静止画処理済み）' : '（フレーム編集待ち）') : ''}`;
   soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
@@ -786,8 +790,10 @@ async function initialize(): Promise<void> {
       }
     }
     saveState.textContent = `この端末から${saved.length}枠のデータを復元しました。`;
+    saveState.dataset.status = 'saved';
   } catch (error) {
     saveState.textContent = '保存機能を利用できません。プライベートモードや容量を確認してください。' + (error instanceof Error ? ' ' + error.message : '');
+    saveState.dataset.status = 'error';
   } finally {
     ready = true;
     app!.style.pointerEvents = '';
