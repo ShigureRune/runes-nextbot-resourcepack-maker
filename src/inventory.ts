@@ -24,12 +24,16 @@ export function mountInventory(
     '</div>',
   ].join('');
 
-  const grid = root.querySelector<HTMLDivElement>('#nb-grid');
-  const scroll = root.querySelector<HTMLDivElement>('#nb-scroll-area');
-  const thumb = root.querySelector<HTMLDivElement>('.nb-scroll-thumb');
-  const count = root.querySelector<HTMLSpanElement>('#nb-inventory-count');
-  const hint = root.querySelector<HTMLDivElement>('#nb-selection-hint');
-  if (!grid || !scroll || !thumb || !count || !hint) throw new Error('Inventory UI unavailable');
+  function required<T extends Element>(selector: string): T {
+    const element = root.querySelector<T>(selector);
+    if (!element) throw new Error(`Inventory element missing: ${selector}`);
+    return element;
+  }
+  const grid = required<HTMLDivElement>('#nb-grid');
+  const scroll = required<HTMLDivElement>('#nb-scroll-area');
+  const thumb = required<HTMLDivElement>('.nb-scroll-thumb');
+  const count = required<HTMLSpanElement>('#nb-inventory-count');
+  const hint = required<HTMLDivElement>('#nb-selection-hint');
 
   const buttons: HTMLButtonElement[] = [];
   const urls = new Map<number, { blob: Blob; url: string }>();
