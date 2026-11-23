@@ -27,8 +27,8 @@ app.innerHTML = `
     <p id="sound-name" class="note"></p>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <section id="image-editor" class="image-editor" hidden aria-label="PNG画像編集">
-      <h3>画像編集（PNG）</h3><p class="note">元画像の座標で範囲指定。スポイトは下の元画像をタップして色を選びます。適用するまで登録画像は変更されません。</p>
-      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・色スポイト" tabindex="0"></canvas>
+      <h3>画像編集（PNG）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
+      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
         <label>切り抜き Y<input id="crop-y" type="number" min="0" step="1"></label>
@@ -97,6 +97,9 @@ const soundInput = get<HTMLInputElement>('sound');
 const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
+const processedPreview = get<HTMLCanvasElement>('processed-preview');
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
+let previewVersion = 0;
 const cropInfo = get<HTMLElement>('crop-info');
 const imageEditStatus = get<HTMLElement>('image-edit-status');
 const cropFields = ['crop-x','crop-y','crop-width','crop-height'] as const;
@@ -121,12 +124,34 @@ function updateCropInfo(): void {
   context.drawImage(activeBitmap, 0, 0);
   context.strokeStyle = '#ff00ff'; context.lineWidth = Math.max(2, sourceCanvas.width / 250);
   context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+  schedulePreview();
+}
+function schedulePreview(): void {
+  clearTimeout(previewTimer);
+  const version = ++previewVersion;
+  const bitmap = activeBitmap;
+  if (!bitmap) return;
+  previewTimer = setTimeout(async () => {
+    try {
+      const png = await processPng(bitmap, imageSettings());
+      if (version !== previewVersion || bitmap !== activeBitmap) return;
+      const image = await createImageBitmap(png);
+      if (version !== previewVersion || bitmap !== activeBitmap) { image.close(); return; }
+      processedPreview.width = image.width; processedPreview.height = image.height;
+      const context = processedPreview.getContext('2d');
+      context?.drawImage(image, 0, 0);
+      image.close();
+    } catch (error) {
+      if (version === previewVersion) imageEditStatus.textContent = error instanceof Error ? error.message : 'プレビューに失敗しました。';
+    }
+  }, 180);
 }
 async function renderImageEditor(id: number): Promise<void> {
   const token = ++editToken;
   const slot = store.get(id);
   if (!slot.visual || slot.visual.sourceFormat !== 'png') {
     imageEditorPanel.hidden = true;
+    clearTimeout(previewTimer); ++previewVersion;
     activeBitmap?.close(); activeBitmap = null; bitmapSource = null;
     return;
   }
@@ -150,14 +175,46 @@ async function renderImageEditor(id: number): Promise<void> {
   }
 }
 for (const id of cropFields) get<HTMLInputElement>(id).addEventListener('input', updateCropInfo);
-sourceCanvas.addEventListener('click', event => {
-  if (!activeBitmap) return;
+for (const id of ['key-enabled', 'key-color', 'key-tolerance', 'key-feather', 'image-resolution']) {
+  get<HTMLInputElement>(id).addEventListener('input', schedulePreview);
+}
+function canvasPosition(event: PointerEvent): { x: number; y: number } {
   const rect = sourceCanvas.getBoundingClientRect();
-  const color = sampleColor(activeBitmap, (event.clientX - rect.left) * activeBitmap.width / rect.width, (event.clientY - rect.top) * activeBitmap.height / rect.height);
-  get<HTMLInputElement>('key-color').value = color;
-  get<HTMLInputElement>('key-enabled').checked = true;
-  imageEditStatus.textContent = `スポイトで ${color} を選択しました。`;
+  return {
+    x: Math.max(0, Math.min(sourceCanvas.width - 1, Math.floor((event.clientX - rect.left) * sourceCanvas.width / rect.width))),
+    y: Math.max(0, Math.min(sourceCanvas.height - 1, Math.floor((event.clientY - rect.top) * sourceCanvas.height / rect.height))),
+  };
+}
+let dragStart: { x: number; y: number } | null = null;
+sourceCanvas.addEventListener('pointerdown', event => {
+  if (!activeBitmap || event.button !== 0) return;
+  dragStart = canvasPosition(event);
+  sourceCanvas.setPointerCapture(event.pointerId);
 });
+sourceCanvas.addEventListener('pointerup', event => {
+  if (!activeBitmap || !dragStart) return;
+  const start = dragStart;
+  dragStart = null;
+  const end = canvasPosition(event);
+  if (Math.abs(end.x - start.x) < 3 && Math.abs(end.y - start.y) < 3) {
+    const color = sampleColor(activeBitmap, end.x, end.y);
+    get<HTMLInputElement>('key-color').value = color;
+    get<HTMLInputElement>('key-enabled').checked = true;
+    imageEditStatus.textContent = `スポイトで ${color} を選択しました。`;
+    schedulePreview();
+    return;
+  }
+  const bounds = {
+    x: Math.min(start.x, end.x), y: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x) + 1, height: Math.abs(end.y - start.y) + 1,
+  };
+  for (const [key, value] of Object.entries({
+    'crop-x': bounds.x, 'crop-y': bounds.y,
+    'crop-width': bounds.width, 'crop-height': bounds.height,
+  })) get<HTMLInputElement>(key).value = String(value);
+  updateCropInfo();
+});
+sourceCanvas.addEventListener('pointercancel', () => { dragStart = null; });
 get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
   if (!activeBitmap || bitmapSlot !== currentSlot()) return;
   const id = currentSlot(), source = bitmapSource, bitmap = activeBitmap;
