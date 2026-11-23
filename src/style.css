@@ -1,27 +1,75 @@
-*{box-sizing:border-box}body{margin:0;background:#0e1020;color:#f5f3ff;font-family:system-ui,-apple-system,sans-serif;line-height:1.6}main{max-width:880px;margin:auto;padding:36px 18px 80px}header{text-align:center;margin-bottom:30px}h1{color:#bda7ff;font-size:clamp(2rem,7vw,3.4rem);margin:0}h2{margin:0 0 16px;font-size:1.3rem}.subtitle{color:#c9c4e3}.panel{background:#1c2035;border:1px solid #353b58;border-radius:18px;padding:24px;margin:18px 0;box-shadow:0 8px 24px #0002}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}label{display:block;font-weight:650}input,select{display:block;width:100%;margin-top:7px;border:1px solid #535a79;border-radius:9px;padding:11px;background:#121627;color:white;font:inherit}input[type=file]{font-size:.88rem}button{border:0;background:#a78bfa;color:#151023;font:inherit;font-weight:750;padding:13px 22px;border-radius:10px;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}.note{color:#c3bddc;font-size:.92rem}.warning{color:#ffd18d}.preview{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.preview img{width:120px;height:120px;object-fit:contain;background:#0d1020;border-radius:12px;image-rendering:pixelated}.status{min-height:1.7em;white-space:pre-wrap}footer{text-align:center;color:#9992b8;font-size:.85rem;margin-top:30px}a{color:#c9b7ff}
-.secondary-button{background:#323951;color:#f5f3ff;border:1px solid #535a79}.secondary-button:hover{background:#414966}.status{overflow-wrap:anywhere}
 
-/* Stage 03 dedicated editor navigation */
+/* Rune's Nextbot Maker: original Minecraft-inspired GUI, no copied game assets */
+:root{color-scheme:light;--stone:#c6c6c6;--stone-dark:#888;--ink:#242424;--grass:#548a3a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;min-width:300px;background-color:#20291e;background-image:linear-gradient(90deg,#ffffff07 1px,transparent 1px),linear-gradient(#ffffff07 1px,transparent 1px),linear-gradient(145deg,#202a20,#39463a 50%,#20291e);background-size:16px 16px,16px 16px,auto;color:#f1f1f1;font:500 16px/1.6 system-ui,-apple-system,"Hiragino Kaku Gothic ProN",sans-serif}
+main{max-width:960px;margin:0 auto;padding:24px 15px 70px}
+header{text-align:center;padding:22px 12px 18px;margin-bottom:28px;background:#263126;border:4px solid;border-color:#596d50 #131c13 #131c13 #596d50;box-shadow:5px 5px 0 #101610}
+h1,h2,h3,.editor-nav strong{font-family:ui-monospace,Consolas,monospace;font-weight:900}
+h1{font-size:clamp(1.65rem,5vw,2.85rem);color:#e7f6d8;text-shadow:3px 3px 0 #244125;line-height:1.25;margin:0;overflow-wrap:anywhere}
+.subtitle{color:#b9d4aa;font-size:.87rem;margin:8px 0 0;letter-spacing:.07em}
+.panel{margin:22px 0;padding:clamp(14px,3vw,26px);background:var(--stone);color:var(--ink);border:5px solid;border-color:#fff #565656 #565656 #fff;box-shadow:5px 5px 0 #111}
+.panel h2{font-size:clamp(1.08rem,3vw,1.35rem);margin:0 0 14px}
+.panel h2::before{content:"▣";color:#417731;margin-right:.5em}
+.panel h3{margin:0 0 10px;font-size:1rem}
+.note{font-size:.9rem;line-height:1.65}
+.panel .note{color:#404040}
+.inventory-help{text-align:center;color:#d9e7ce;margin:8px auto}
+.warning{color:#68400e;background:#f2dfa9;border-left:5px solid #a97621;padding:10px 12px}
+.status{min-height:1.5em;overflow-wrap:anywhere}
+[role="status"]{overflow-wrap:anywhere}
+footer{text-align:center;color:#bed2b5;font-size:.85rem;margin-top:38px}
+a{color:#d5f4ae}
+button{min-height:44px;padding:10px 16px;border-radius:0;cursor:pointer;color:white;font:800 .92rem/1.3 system-ui,-apple-system,sans-serif;text-shadow:1px 1px 0 #2d4326;background:linear-gradient(#68a448 0 50%,#487b35 50%);border:3px solid;border-color:#aad68e #32532c #32532c #aad68e;box-shadow:3px 3px 0 #353535;transition:filter .12s,transform .12s}
+button:hover:not(:disabled){filter:brightness(1.08)}
+button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 #353535}
+button:disabled{opacity:.53;cursor:not-allowed;filter:grayscale(.4)}
+.secondary-button{color:#222;text-shadow:none;background:linear-gradient(#e4e4e4 0 50%,#b7b7b7 50%);border-color:#fff #717171 #717171 #fff}
+.secondary-button:hover:not(:disabled){background:#ebebeb}
+#remove-image,#remove-sound,#clear-slot{background:linear-gradient(#b75d53 0 50%,#914138 50%);color:white;text-shadow:1px 1px 0 #672e28;border-color:#ebac9f #743a34 #743a34 #ebac9f}
+:where(button,input,select,canvas,video,a):focus-visible{outline:3px solid #2064c5;outline-offset:3px}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 18px}
+label{display:block;font-weight:750;color:#242424}
+input,select{display:block;width:100%;max-width:100%;min-width:0;min-height:44px;margin-top:6px;padding:9px 10px;border-radius:0;background:#f6f6f6;color:#242424;border:3px solid;border-color:#626262 #fff #fff #626262;box-shadow:inset 2px 2px 0 #b4b4b4;font:inherit}
+input[type=file]{padding:8px;font-size:.84rem}
+input[type=file]::file-selector-button{cursor:pointer;padding:6px 8px;margin-right:8px;border:2px solid;border-color:#fff #666 #666 #fff;background:#dadada;color:#242424;font-weight:700}
+input[type=checkbox]{width:25px;height:25px;min-height:25px;box-shadow:none;accent-color:#548a3a}
+input[type=color]{height:47px;padding:3px}
+input[type=range]{min-height:30px;padding:0;border:0;box-shadow:none;background:transparent;accent-color:#548a3a}
+.editor-nav{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+.editor-nav strong{flex:1;text-align:center;font-size:1.1rem;white-space:nowrap}
+.editor-nav button{padding:8px 12px}
+.editor-actions{display:flex;flex-wrap:wrap;gap:10px;margin:15px 0 20px}
+.editor-actions button{flex:1 1 170px}
 [hidden]{display:none!important}
-.editor-nav,.editor-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
-.editor-nav strong{margin-inline:auto;font-family:monospace;color:#e2d4ff}
-.editor-nav button,.editor-actions button{padding:9px 12px;font-size:.88rem}
-@media(max-width:520px){.editor-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.editor-nav strong{grid-column:1/-1;grid-row:1;text-align:center}.editor-nav button{width:100%}.editor-actions button{flex:1 1 130px}}
-
-/* Stage 05: static PNG crop/chroma editor */
-.image-editor{margin:20px 0;padding:18px;border:1px solid #535a79;border-radius:14px;background:#151a2c}
-.image-editor h3{margin:0 0 8px}
-.source-canvas{display:block;max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain;background:repeating-conic-gradient(#ccc 0% 25%,#888 0% 50%) 50% / 18px 18px;image-rendering:pixelated;cursor:crosshair;border:2px solid #737a9a;margin:12px 0}
-.image-editor input[type=checkbox]{width:24px;height:24px}
-.image-editor input[type=color]{height:46px;padding:4px}
-.image-editor input[type=range]{padding:0}
-
+.setup-block{padding:16px;margin:14px 0 18px;background:#b8b8b8;border:3px solid;border-color:#767676 #f1f1f1 #f1f1f1 #767676}
+.setup-block .fields{margin:12px 0}
+#slot-state{display:inline-block;padding:5px 10px;margin:8px 0;font-weight:850;background:#dedede;border:2px solid #888;color:#333}
+#slot-state[data-state=partial]{background:#ffe5a2;border-color:#b6862f;color:#56380f}
+#slot-state[data-state=complete]{background:#cce8b9;border-color:#5d8b3a;color:#254c1e}
+#image-name,#sound-name{margin:5px 0}
+.preview{display:flex;align-items:center;flex-wrap:wrap;gap:16px;min-height:126px;margin:14px 0;padding:15px;background:#a7a7a7;border:3px solid;border-color:#626262 #f6f6f6 #f6f6f6 #626262}
+.preview::before{content:"FACE";font:900 .8rem ui-monospace,monospace;letter-spacing:.12em}
+.preview img{width:112px;height:112px;object-fit:contain;image-rendering:pixelated;background:repeating-conic-gradient(#b9c3b4 0 25%,#8c9688 0 50%) 50%/16px 16px;border:3px solid #656565}
+.image-editor{margin:19px 0;padding:clamp(12px,2vw,18px);background:#b4b4b4;color:#242424;border:4px solid;border-color:#737373 #efefef #efefef #737373}
+.image-editor h3{margin:0 0 13px;background:#444;color:#fff;padding:9px 12px;border-left:5px solid #78b654;font-size:1rem}
+.image-editor .note{color:#323232}
+.image-editor .fields{margin:15px 0}
+.source-canvas{display:block;max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain;image-rendering:pixelated;cursor:crosshair;margin:12px 0;background:repeating-conic-gradient(#d7d7d7 0 25%,#898989 0 50%) 50%/18px 18px;border:3px solid #686868}
 #source-canvas{touch-action:none;user-select:none}
-#processed-preview{cursor:default;max-height:256px}
-
-/* Stage 06: audio waveform is scaled to fit narrow screens. */
-.audio-waveform{display:block;width:100%;height:auto;max-height:140px;border:1px solid #53627e;border-radius:8px;margin:12px 0}
-
-/* Stage09 video still capture */
-.video-preview{display:block;width:100%;max-height:380px;object-fit:contain;background:#000;border-radius:10px;margin:12px 0}
-#video-seek{margin:12px 0 18px;padding:0}
+#processed-preview{max-height:256px;cursor:default}
+.audio-waveform{display:block;width:100%;height:auto;max-height:140px;background:#182334;border:3px solid #666;margin:12px 0}
+.video-preview{display:block;width:100%;max-height:380px;background:#111;object-fit:contain;border:3px solid #666;margin:12px 0}
+#video-seek{margin:12px 0 18px}
+#gif-range{padding:12px;margin:15px 0;background:#ccc;border:2px solid #777}
+#crop-info,#image-edit-status,#audio-range-status,#video-status{border-left:4px solid #6a9b4f;padding-left:9px}
+#save-state{padding:8px 10px;border-left:4px solid #888}
+#save-state[data-status=saving]{border-color:#ba8a29}
+#save-state[data-status=saved]{border-color:#588e3b}
+#save-state[data-status=error]{border-color:#a13b35}
+#download{width:100%;margin:8px 0}
+#summary{font-weight:850;padding:10px 12px;background:#aeaeae;border:3px solid;border-color:#666 #eee #eee #666}
+.danger-heading{margin:24px 0 8px;color:#77372c}
+@media(max-width:640px){main{padding:12px 10px 55px}header{padding:20px 9px}.panel{border-width:4px;box-shadow:3px 3px 0 #111}.fields{grid-template-columns:minmax(0,1fr);gap:12px}.editor-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.editor-nav strong{grid-column:1/-1;grid-row:1}.editor-nav button{width:100%;font-size:.83rem;padding:9px 6px}.editor-nav #back-list{grid-column:1/-1}.setup-block{padding:12px}.editor-actions button{flex-basis:135px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}button{transition:none}}
