@@ -7,6 +7,7 @@ import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif } from './gifEditor';
+import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -18,11 +19,11 @@ app.innerHTML = `
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
   <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>Nextbot専用編集画面</h2>
-    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG・GIF、音声はOGG Vorbis・MP3に対応。MP3とGIFは編集・変換の適用が必要です。</p>
+    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG・GIF・動画に対応。動画はフレームを取り出してから画像編集を適用してください。音声はOGG Vorbis・MP3に対応。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
       <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
-      <label>顔画像（PNG / GIF）<input id="image" type="file" accept=".png,.gif,image/png,image/gif"></label>
+      <label>顔画像・動画（PNG / GIF / MP4 / WebM / MOV）<input id="image" type="file" accept=".png,.gif,.mp4,.m4v,.webm,.mov,image/png,image/gif,video/mp4,video/webm,video/quicktime"></label>
       <label>音声（MP3 / OGG Vorbis）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
     </div>
     <p id="slot-state" class="note" aria-live="polite"></p>
@@ -44,9 +45,19 @@ app.innerHTML = `
       </div>
       <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
     </section>
+    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
+      <h3>動画→静止画（段階09）</h3>
+      <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
+      <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
+      <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
+      <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
+      <button id="capture-video" type="button">このフレームを画像編集へ</button>
+      <p id="video-status" class="note" role="status" aria-live="polite"></p>
+      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
+    </section>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
-    <section id="image-editor" class="image-editor" hidden aria-label="PNG画像編集">
-      <h3>画像編集（PNG / GIF）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
+    <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
+      <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
       <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
@@ -257,6 +268,109 @@ window.addEventListener('pagehide', () => {
   if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
 });
 
+interface VideoFrameSelection { slotId: number; source: Blob; png: Blob }
+let videoFrameSelection: VideoFrameSelection | null = null;
+const videoEditor = get<HTMLElement>('video-editor');
+const videoPreview = get<HTMLVideoElement>('video-preview');
+const videoTimeInput = get<HTMLInputElement>('video-time');
+const videoSeekInput = get<HTMLInputElement>('video-seek');
+const videoCaptureButton = get<HTMLButtonElement>('capture-video');
+const videoStatus = get<HTMLElement>('video-status');
+let videoPreviewBlob: Blob | null = null;
+let videoPreviewUrl: string | null = null;
+let videoVersion = 0;
+
+function releaseVideoPreview(): void {
+  videoPreview.pause();
+  if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+  videoPreviewUrl = null;
+  videoPreviewBlob = null;
+  videoPreview.removeAttribute('src');
+  videoPreview.load();
+}
+function renderVideoEditor(id: number): void {
+  const visual = store.get(id).visual;
+  const source = visual?.sourceFormat === 'video' ? visual.source : null;
+  videoEditor.hidden = !source;
+  if (videoPreviewBlob === source) return;
+  ++videoVersion;
+  releaseVideoPreview();
+  if (!source) return;
+  videoPreviewBlob = source;
+  videoCaptureButton.disabled = true;
+  videoTimeInput.value = '0';
+  videoSeekInput.value = '0';
+  videoSeekInput.max = '1';
+  videoStatus.textContent = '動画の情報を読み込み中…';
+  videoPreviewUrl = URL.createObjectURL(source);
+  videoPreview.src = videoPreviewUrl;
+  videoPreview.load();
+}
+videoPreview.addEventListener('loadedmetadata', () => {
+  if (!videoPreviewBlob) return;
+  try {
+    const info = assertVideoInfo({
+      width: videoPreview.videoWidth, height: videoPreview.videoHeight, duration: videoPreview.duration,
+    });
+    videoTimeInput.max = String(info.duration);
+    videoSeekInput.max = String(info.duration);
+    videoCaptureButton.disabled = false;
+    videoStatus.textContent = `動画：${info.width}×${info.height}px・${info.duration.toFixed(2)}秒。再生位置を指定してください。`;
+  } catch (error) {
+    videoCaptureButton.disabled = true;
+    videoStatus.textContent = error instanceof Error ? error.message : '動画を開けません。';
+  }
+});
+videoPreview.addEventListener('error', () => {
+  if (videoPreviewBlob) {
+    videoCaptureButton.disabled = true;
+    videoStatus.textContent = 'このブラウザでは動画を再生できません。形式や映像コーデックを確認してください。';
+  }
+});
+videoPreview.addEventListener('timeupdate', () => {
+  if (!Number.isFinite(videoPreview.duration) || videoPreview.seeking) return;
+  const t = String(videoPreview.currentTime);
+  videoTimeInput.value = t;
+  videoSeekInput.value = t;
+});
+function seekVideoFromInput(value: string): void {
+  if (!videoPreviewBlob || !Number.isFinite(videoPreview.duration)) return;
+  try {
+    const t = frameTime(Number(value), videoPreview.duration);
+    videoPreview.pause();
+    videoPreview.currentTime = t;
+    videoSeekInput.value = String(t);
+    videoTimeInput.value = String(t);
+  } catch (error) {
+    videoStatus.textContent = error instanceof Error ? error.message : '再生位置を確認してください。';
+  }
+}
+videoSeekInput.addEventListener('input', () => seekVideoFromInput(videoSeekInput.value));
+videoTimeInput.addEventListener('change', () => seekVideoFromInput(videoTimeInput.value));
+videoCaptureButton.addEventListener('click', async () => {
+  const id = currentSlot();
+  const visual = store.get(id).visual;
+  if (visual?.sourceFormat !== 'video' || videoCaptureButton.disabled || videoPreviewBlob !== visual.source) return;
+  const version = videoVersion;
+  const t = Number(videoTimeInput.value);
+  videoCaptureButton.disabled = true;
+  videoStatus.textContent = '指定フレームをPNGに変換中…';
+  try {
+    const png = await captureVideoFrame(videoPreview, t);
+    if (version !== videoVersion || store.get(id).visual !== visual || currentSlot() !== id) return;
+    videoFrameSelection = { slotId: id, source: visual.source, png };
+    await renderImageEditor(id);
+    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。下の画像編集を適用して保存してください。`;
+    imageEditorPanel.scrollIntoView({ block: 'nearest' });
+  } catch (error) {
+    if (version === videoVersion) videoStatus.textContent = '取得に失敗：' +
+      (error instanceof Error ? error.message : '動画フレームを確認してください。');
+  } finally {
+    if (version === videoVersion) videoCaptureButton.disabled = false;
+  }
+});
+window.addEventListener('pagehide', releaseVideoPreview);
+
 const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
@@ -312,7 +426,10 @@ function schedulePreview(): void {
 async function renderImageEditor(id: number): Promise<void> {
   const token = ++editToken;
   const slot = store.get(id);
-  if (!slot.visual || (slot.visual.sourceFormat !== 'png' && slot.visual.sourceFormat !== 'gif')) {
+  const editSource = slot.visual?.sourceFormat === 'video'
+    ? (videoFrameSelection?.slotId === id && videoFrameSelection.source === slot.visual.source ? videoFrameSelection.png : null)
+    : slot.visual?.source;
+  if (!slot.visual || !editSource) {
     imageEditorPanel.hidden = true;
     get<HTMLElement>('gif-range').hidden = true;
     clearTimeout(previewTimer); ++previewVersion;
@@ -321,13 +438,13 @@ async function renderImageEditor(id: number): Promise<void> {
   }
   imageEditorPanel.hidden = false;
   get<HTMLElement>('gif-range').hidden = slot.visual.sourceFormat !== 'gif';
-  if (bitmapSlot === id && bitmapSource === slot.visual.source && activeBitmap) { updateCropInfo(); return; }
+  if (bitmapSlot === id && bitmapSource === editSource && activeBitmap) { updateCropInfo(); return; }
   activeBitmap?.close(); activeBitmap = null;
   imageEditStatus.textContent = '元画像を読み込み中…';
   try {
-    const bitmap = await loadPng(slot.visual.source);
+    const bitmap = await loadPng(editSource);
     if (token !== editToken || currentSlot() !== id) { bitmap.close(); return; }
-    activeBitmap = bitmap; bitmapSlot = id; bitmapSource = slot.visual.source;
+    activeBitmap = bitmap; bitmapSlot = id; bitmapSource = editSource;
     sourceCanvas.width = bitmap.width; sourceCanvas.height = bitmap.height;
     const defaults = defaultImageSettings(bitmap.width, bitmap.height);
     for (const [key, value] of Object.entries({ 'crop-x': defaults.x, 'crop-y': defaults.y, 'crop-width': defaults.width, 'crop-height': defaults.height })) {
@@ -391,9 +508,11 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
   if (!activeBitmap || bitmapSlot !== currentSlot()) return;
   const id = currentSlot(), source = bitmapSource, bitmap = activeBitmap;
   const button = get<HTMLButtonElement>('apply-image');
-  button.disabled = true; imageEditStatus.textContent = 'PNGを処理中…';
+  button.disabled = true; imageEditStatus.textContent = '画像を処理中…';
   try {
     const visual = store.get(id).visual!;
+    const unchanged = () => id === currentSlot() && store.get(id).visual === visual &&
+      (visual.sourceFormat === 'video' ? videoFrameSelection?.png === source : visual.source === source);
     if (visual.sourceFormat === 'gif') {
       const result = await processGif(visual.source, imageSettings(), {
         first: Number(get<HTMLInputElement>('gif-start').value),
@@ -401,7 +520,7 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
       }, fraction => {
         if (currentSlot() === id) imageEditStatus.textContent = 'GIF変換中…' + Math.round(fraction * 100) + '%';
       });
-      if (id !== currentSlot() || source !== store.get(id).visual?.source) return;
+      if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: {
         png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
       } } });
@@ -409,7 +528,7 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
       imageEditStatus.textContent = `GIF ${result.frameCount}フレームのアニメーションPNGを登録しました。`;
     } else {
       const png = await processPng(bitmap, imageSettings());
-      if (id !== currentSlot() || source !== store.get(id).visual?.source) return;
+      if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: { png } } });
       render(); queueSave();
       imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
@@ -442,6 +561,7 @@ function openEditor(id: number): void {
 }
 function showInventory(): void {
   stopAudioPreview();
+  videoPreview.pause();
   editorPanel.hidden = true;
   inventoryRoot.hidden = false;
   if (inventoryHelp) inventoryHelp.hidden = false;
@@ -473,7 +593,7 @@ function render(): void {
   imageInput.value = '';
   soundInput.value = '';
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
-  imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}`;
+  imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${slot.visual?.sourceFormat === 'video' ? (slot.visual.processed ? '（静止画処理済み）' : '（フレーム編集待ち）') : ''}`;
   soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
   get<HTMLButtonElement>('download').disabled = !summary.canExport;
@@ -484,6 +604,7 @@ function render(): void {
       : '少なくとも1枠に画像と音声を揃えてください。';
   void renderImageEditor(slot.id);
   renderAudioEditor(slot.id);
+  renderVideoEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   if (slot.visual?.processed?.png) {
@@ -539,37 +660,54 @@ nameInput.addEventListener('input', () => {
   queueSave();
 });
 
+let imageUploadVersion = 0;
 imageInput.addEventListener('change', async () => {
   const file = imageInput.files?.[0];
   if (!file) return;
   const id = currentSlot();
-  feedback.textContent = '画像の形式を確認中…';
+  const version = ++imageUploadVersion;
+  const previous = store.get(id).visual;
+  feedback.textContent = '画像・動画を確認中…';
   try {
-    if (file.name.toLowerCase().endsWith('.gif')) {
+    if (isVideoFilename(file.name)) {
+      const info = await inspectVideo(file, file.name);
+      if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
+      videoFrameSelection = null;
+      store.update(id, { visual: {
+        sourceName: file.name, sourceFormat: 'video', source: file, processed: null,
+      } });
+      if (currentSlot() === id) feedback.textContent =
+        `Slot ${id}に動画（${info.duration.toFixed(1)}秒）を登録しました。好きなフレームを取り込んでください。`;
+    } else if (file.name.toLowerCase().endsWith('.gif')) {
       const info = await inspectGif(file);
+      if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
+      videoFrameSelection = null;
       store.update(id, { visual: {
         sourceName: file.name, sourceFormat: 'gif', source: file, processed: null,
       } });
-      feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を読み込みました。編集適用後に完成扱いになります。`;
+      if (currentSlot() === id) feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を登録しました。`;
     } else {
       if (!file.name.toLowerCase().endsWith('.png') || !(await isPng(file))) {
-        throw new Error('PNGまたはGIF画像を選択してください。');
+        throw new Error('PNG・GIF・MP4・WebM・MOVを選んでください。');
       }
       if (file.size > 16 * 1024 * 1024) throw new Error('PNGは16MiB以下にしてください。');
       const bitmap = await createImageBitmap(file);
       try {
         if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
-          throw new Error('PNGが大きすぎます。各辺4096px以下、合計800万画素以下にしてください。');
+          throw new Error('PNGが大きすぎます。各辺4096px以下・合計800万画素以下にしてください。');
         }
       } finally { bitmap.close(); }
+      if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
+      videoFrameSelection = null;
       store.update(id, { visual: {
         sourceName: file.name, sourceFormat: 'png', source: file, processed: { png: file },
       } });
-      feedback.textContent = `Slot ${id}にPNGを登録しました。`;
+      if (currentSlot() === id) feedback.textContent = `Slot ${id}にPNGを登録しました。`;
     }
-
   } catch (error) {
-    feedback.textContent = error instanceof Error ? error.message : '画像を読み取れませんでした。';
+    if (version === imageUploadVersion && currentSlot() === id) feedback.textContent =
+      error instanceof Error ? error.message : '画像・動画を読み取れませんでした。';
+    return;
   }
   if (currentSlot() === id) render();
   else inventory.render(currentSlot());
@@ -612,6 +750,8 @@ soundInput.addEventListener('change', async () => {
 });
 
 get<HTMLButtonElement>('remove-image').addEventListener('click', () => {
+  ++imageUploadVersion;
+  videoFrameSelection = null;
   store.update(currentSlot(), { visual: null });
   feedback.textContent = '画像を削除しました。';
   render();
@@ -627,6 +767,8 @@ get<HTMLButtonElement>('remove-sound').addEventListener('click', () => {
 get<HTMLButtonElement>('clear-slot').addEventListener('click', () => {
   const id = currentSlot();
   if (!window.confirm(`Slot ${id} の画像・音声・名前を削除しますか？`)) return;
+  ++imageUploadVersion;
+  videoFrameSelection = null;
   store.clear(id);
   feedback.textContent = `Slot ${id}を未設定に戻しました。`;
   render();

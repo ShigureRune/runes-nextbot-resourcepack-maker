@@ -21,3 +21,7 @@
 
 /* Stage 06: audio waveform is scaled to fit narrow screens. */
 .audio-waveform{display:block;width:100%;height:auto;max-height:140px;border:1px solid #53627e;border-radius:8px;margin:12px 0}
+
+/* Stage09 video still capture */
+.video-preview{display:block;width:100%;max-height:380px;object-fit:contain;background:#000;border-radius:10px;margin:12px 0}
+#video-seek{margin:12px 0 18px;padding:0}
