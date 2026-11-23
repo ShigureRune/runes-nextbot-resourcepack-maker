@@ -15,7 +15,7 @@ test('GIF delays map to positive Minecraft ticks', () => {
   assert.equal(frameTicks(0),2);
 });
 test('GIF header and dimensions are parsed without rendering', async () => {
-  const gif = new Blob([Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64')]);
+  const gif = new Blob([Buffer.from('R0lGODdhAQABAIEAAP8AAAAAAAAAAAAAACwAAAAAAQABAAAIBAABBAQAOw==', 'base64')]);
   const info = await inspectGif(gif);
   assert.equal(info.width, 1);
   assert.equal(info.height, 1);
