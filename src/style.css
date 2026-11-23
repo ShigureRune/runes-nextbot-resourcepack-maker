@@ -73,3 +73,22 @@ input[type=range]{min-height:30px;padding:0;border:0;box-shadow:none;background:
 .danger-heading{margin:24px 0 8px;color:#77372c}
 @media(max-width:640px){main{padding:12px 10px 55px}header{padding:20px 9px}.panel{border-width:4px;box-shadow:3px 3px 0 #111}.fields{grid-template-columns:minmax(0,1fr);gap:12px}.editor-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.editor-nav strong{grid-column:1/-1;grid-row:1}.editor-nav button{width:100%;font-size:.83rem;padding:9px 6px}.editor-nav #back-list{grid-column:1/-1}.setup-block{padding:12px}.editor-actions button{flex-basis:135px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}button{transition:none}}
+
+/* MOD availability: a real link appears only after its official location is verified. */
+.mod-shortcut{
+  display:inline-block;margin-top:14px;padding:7px 14px;text-decoration:none;
+  color:#e4f8d4;background:#416b35;border:3px solid;
+  border-color:#a7d18c #264524 #264524 #a7d18c;font-weight:800;
+  box-shadow:3px 3px 0 #101610;
+}
+.mod-shortcut:hover{background:#528541;color:white}
+.mod-shortcut:focus-visible,.mod-download-link:focus-visible{outline:3px solid #236ac0;outline-offset:3px}
+.mod-download-panel{border-top-color:#d0edba}
+.mod-release-body{padding:14px;background:#b5b5b5;border:3px solid;border-color:#777 #eee #eee #777}
+.mod-release-status{font-weight:800;color:#4d3b20;padding:10px 12px;margin:0 0 13px;background:#f4e4b5;border-left:5px solid #ad832b}
+.mod-download-link{display:inline-block;margin:0 0 12px;padding:11px 17px;text-decoration:none;
+color:#fff;background:#487b35;border:3px solid;border-color:#a4d48b #32532c #32532c #a4d48b;
+box-shadow:3px 3px 0 #333;font-weight:850}
+.mod-download-link:hover{background:#579443;color:white}
+.mod-download-link[hidden]{display:none!important}
+.mod-release-body .note{margin-bottom:0}

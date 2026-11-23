@@ -8,6 +8,7 @@ import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleR
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif } from './gifEditor';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
+import { MOD_DOWNLOAD_PAGE_URL } from './modRelease';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -15,7 +16,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
   <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>スロットの編集</h2>
@@ -93,6 +94,15 @@ app.innerHTML = `
     <button id="download" type="button" disabled>完成枠を素材ZIPに保存（MOD未対応）</button>
     <p class="warning">素材ZIPはバックアップ・受け渡し用で、Minecraftのリソースパックではありません。MODの正確な仕様が未確認のため、ゲーム用パックの出力はまだできません。</p>
   </section>
+  <section id="mod-download" class="panel mod-download-panel" aria-label="Rune's Nextbot MODの配布情報">
+    <h2>Rune's Nextbot MODを入手</h2>
+    <p class="note">このMakerは素材を作るWebツールです。Minecraft Java版で使うMOD本体とは別のものです。</p>
+    <div class="mod-release-body">
+      <p id="mod-download-status" class="mod-release-status" role="status">MODの配布情報を確認中…</p>
+      <a id="mod-download-link" class="mod-download-link" href="#" target="_blank" rel="noopener noreferrer" hidden>MODの配布ページを開く ↗</a>
+      <p class="note">公式の配布先が確認できるまでは、ダウンロードリンクは表示しません。無関係なMODへの誘導や未公開のファイルの配布は行いません。</p>
+    </div>
+  </section>
   <footer>Rune's Nextbot Maker · Minecraft非公式ツール</footer>
 </main>`;
 
@@ -100,6 +110,18 @@ function get<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing element: ${id}`);
   return element as T;
+}
+
+const modDownloadStatus = get<HTMLElement>('mod-download-status');
+const modDownloadLink = get<HTMLAnchorElement>('mod-download-link');
+if (MOD_DOWNLOAD_PAGE_URL) {
+  modDownloadLink.href = MOD_DOWNLOAD_PAGE_URL;
+  modDownloadLink.hidden = false;
+  modDownloadStatus.textContent = 'Rune\'s Nextbot MODの配布ページへ移動できます。';
+} else {
+  modDownloadLink.removeAttribute('href');
+  modDownloadLink.hidden = true;
+  modDownloadStatus.textContent = 'MOD本体の公式配布先は現在未確認です。リンクが確認できたらここから案内します。';
 }
 
 const store = new NextbotSlotStore();
