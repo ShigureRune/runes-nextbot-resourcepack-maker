@@ -5,6 +5,7 @@ import { loadSlots, saveSlots } from './persistence';
 import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
 import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
+import { buildAssetArchive } from './exportArchive';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -68,8 +69,8 @@ app.innerHTML = `
   <section class="panel"><h2>99枠の集計</h2>
     <p id="summary" aria-live="polite"></p>
     <p id="export-state" class="note"></p>
-    <button id="download" disabled>ZIP書き出し（段階07で実装）</button>
-    <p class="warning">現在は試作版です。GIF・MP3変換、複数枠ZIP、MODとの互換性確認はまだ未実装です。</p>
+    <button id="download" type="button" disabled>完成枠を素材ZIPに保存（MOD未対応）</button>
+    <p class="warning">素材ZIPはバックアップ・受け渡し用で、Minecraftのリソースパックではありません。MODの正確な仕様が未確認のため、ゲーム用パックの出力はまだできません。</p>
   </section>
   <footer>Rune's Nextbot Maker · Minecraft非公式ツール</footer>
 </main>`;
@@ -442,8 +443,9 @@ function render(): void {
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}`;
   soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
+  get<HTMLButtonElement>('download').disabled = !summary.canExport;
   exportState.textContent = summary.canExport
-    ? '素材の書き出し条件を満たしています。ZIP生成機能は段階07で実装します。'
+    ? '完成枠をまとめて素材ZIPに保存できます（MOD用の完成リソースパックではありません）。'
     : summary.partial > 0
       ? `設定途中の${summary.partial}枠を完成させるか削除すると書き出し条件を満たせます。`
       : '少なくとも1枠に画像と音声を揃えてください。';
@@ -462,6 +464,32 @@ function render(): void {
     previewLabel.textContent = '画像未登録';
   }
 }
+
+get<HTMLButtonElement>('download').addEventListener('click', async () => {
+  const button = get<HTMLButtonElement>('download');
+  if (!store.summary().canExport || button.disabled) return;
+  button.disabled = true;
+  exportState.textContent = '完成枠の素材ZIPを検証・生成中…';
+  try {
+    const zip = await buildAssetArchive(store.list());
+    const url = URL.createObjectURL(zip);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'runes-nextbot-assets.zip';
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    exportState.textContent = '素材ZIPを生成しました。Minecraft用リソースパックではありません。';
+  } catch (error) {
+    exportState.textContent = 'ZIP生成失敗：' + (error instanceof Error ? error.message : '不明なエラー');
+  } finally {
+    button.disabled = !store.summary().canExport;
+  }
+});
 
 get<HTMLButtonElement>('back-list').addEventListener('click', showInventory);
 prevButton.addEventListener('click', () => { if (currentSlot() > 1) openEditor(currentSlot() - 1); });
