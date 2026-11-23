@@ -8,7 +8,7 @@ import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleR
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif } from './gifEditor';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
-import { MOD_DOWNLOAD_PAGE_URL } from './modRelease';
+import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -98,9 +98,9 @@ app.innerHTML = `
     <h2>Rune's Nextbot MODを入手</h2>
     <p class="note">このMakerは素材を作るWebツールです。Minecraft Java版で使うMOD本体とは別のものです。</p>
     <div class="mod-release-body">
-      <p id="mod-download-status" class="mod-release-status" role="status">MODの配布情報を確認中…</p>
-      <a id="mod-download-link" class="mod-download-link" href="#" target="_blank" rel="noopener noreferrer" hidden>MODの配布ページを開く ↗</a>
-      <p class="note">公式の配布先が確認できるまでは、ダウンロードリンクは表示しません。無関係なMODへの誘導や未公開のファイルの配布は行いません。</p>
+      <p id="mod-download-status" class="mod-release-status" role="status">MODのダウンロード情報を確認中…</p>
+      <a id="mod-download-link" class="mod-download-link" href="#" download hidden>MOD本体（.jar）をダウンロード ↓</a>
+      <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
   <footer>Rune's Nextbot Maker · Minecraft非公式ツール</footer>
@@ -114,14 +114,18 @@ function get<T extends HTMLElement>(id: string): T {
 
 const modDownloadStatus = get<HTMLElement>('mod-download-status');
 const modDownloadLink = get<HTMLAnchorElement>('mod-download-link');
-if (MOD_DOWNLOAD_PAGE_URL) {
-  modDownloadLink.href = MOD_DOWNLOAD_PAGE_URL;
+const modJarUrl = verifiedJarUrl(MOD_DOWNLOAD_JAR_URL);
+if (modJarUrl) {
+  // A real, verified JAR link goes directly to the file, not a releases page.
+  modDownloadLink.href = modJarUrl;
+  modDownloadLink.download = jarFilename(modJarUrl);
   modDownloadLink.hidden = false;
-  modDownloadStatus.textContent = 'Rune\'s Nextbot MODの配布ページへ移動できます。';
+  modDownloadStatus.textContent = 'MOD本体（.jar）を直接ダウンロードできます。';
 } else {
   modDownloadLink.removeAttribute('href');
+  modDownloadLink.removeAttribute('download');
   modDownloadLink.hidden = true;
-  modDownloadStatus.textContent = 'MOD本体の公式配布先は現在未確認です。リンクが確認できたらここから案内します。';
+  modDownloadStatus.textContent = 'MOD本体のJARファイルはまだ登録されていません。公式ファイルの公開後にダウンロードボタンを有効化します。';
 }
 
 const store = new NextbotSlotStore();
