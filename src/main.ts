@@ -4,6 +4,7 @@ import { mountInventory } from './inventory';
 import { loadSlots, saveSlots } from './persistence';
 import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
 import type { ImageEditSettings } from './imageEditor';
+import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -15,27 +16,31 @@ app.innerHTML = `
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
   <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>Nextbot専用編集画面</h2>
-    <p class="note">各スロットの名前・画像・音声は別々に管理されます。現在はPNG・OGGのみ登録可能です。</p>
+    <p class="note">各スロットの名前・画像・音声は別々に管理されます。画像はPNG、音声はOGG VorbisまたはMP3に対応。MP3はVorbisへの変換が必要です。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
       <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
       <label>顔画像（PNG）<input id="image" type="file" accept=".png,image/png"></label>
-      <label>音声（OGG Vorbis）<input id="sound" type="file" accept=".ogg,audio/ogg"></label>
+      <label>音声（MP3 / OGG Vorbis）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
     </div>
     <p id="slot-state" class="note" aria-live="polite"></p>
     <p id="image-name" class="note"></p>
     <p id="sound-name" class="note"></p>
-    <section id="audio-editor" class="image-editor" hidden aria-label="音声の試聴と範囲指定">
-      <h3>音声編集（段階06・試聴）</h3>
-      <p class="note">登録済みOGG Vorbisの試聴と開始・終了位置の指定。範囲指定はプレビュー専用で、切り抜きファイルの保存はエンコーダ実装まで行いません。</p>
+    <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
+      <h3>音声編集（MP3 / OGG Vorbis）</h3>
+      <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
       <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
+      <canvas id="audio-waveform" width="640" height="100" class="audio-waveform" aria-label="音声波形と切り抜き範囲"></canvas>
       <div class="fields">
-        <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.1" value="0"></label>
-        <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.1" value="0"></label>
+        <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.01" value="0"></label>
+        <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.01" value="0"></label>
       </div>
       <p id="audio-range-status" class="note" role="status"></p>
-      <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
-      <p class="warning">MP3入力と実際のOGG Vorbis変換は未実装です。音声を偽装変換しません。</p>
+      <div class="editor-actions">
+        <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
+        <button id="apply-audio" type="button">切り抜いてOGG保存</button>
+      </div>
+      <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
     </section>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
     <section id="image-editor" class="image-editor" hidden aria-label="PNG画像編集">
@@ -111,51 +116,86 @@ const audioPreview = get<HTMLAudioElement>('audio-preview');
 const audioStart = get<HTMLInputElement>('audio-start');
 const audioEnd = get<HTMLInputElement>('audio-end');
 const audioRangeStatus = get<HTMLElement>('audio-range-status');
+const audioWaveform = get<HTMLCanvasElement>('audio-waveform');
+const audioApplyButton = get<HTMLButtonElement>('apply-audio');
 let audioPreviewUrl: string | null = null;
 let audioPreviewBlob: Blob | null = null;
+let audioDecoded: AudioBuffer | null = null;
+let audioDecodeToken = 0;
 let rangePlayback = false;
+
 function stopAudioPreview(): void {
   rangePlayback = false;
   audioPreview.pause();
 }
+function drawAudioWaveform(): void {
+  const ctx = audioWaveform.getContext('2d');
+  if (!ctx) return;
+  const { width, height } = audioWaveform;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#182334'; ctx.fillRect(0, 0, width, height);
+  if (!audioDecoded) return;
+  const duration = audioDecoded.duration;
+  const start = Math.max(0, Math.min(duration, Number(audioStart.value) || 0));
+  const end = Math.max(start, Math.min(duration, Number(audioEnd.value) || duration));
+  ctx.fillStyle = '#6553aa';
+  ctx.fillRect(width * start / duration, 0, width * (end - start) / duration, height);
+  const peaks = waveformPeaks(audioDecoded.getChannelData(0), width);
+  ctx.fillStyle = '#8de8e2';
+  for (let i = 0; i < peaks.length; i++) {
+    const h = Math.max(1, peaks[i] * height * 0.9);
+    ctx.fillRect(i, (height - h) / 2, 1, h);
+  }
+}
 function renderAudioEditor(id: number): void {
-  const blob = store.get(id).audio?.processed?.ogg ?? null;
+  const slot = store.get(id);
+  const blob = slot.audio?.processed?.ogg ?? slot.audio?.source ?? null;
   audioEditor.hidden = !blob;
   if (blob === audioPreviewBlob) return;
+  const token = ++audioDecodeToken;
   stopAudioPreview();
   if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
   audioPreviewUrl = null;
   audioPreviewBlob = blob;
-  audioStart.value = '0';
-  audioEnd.value = '0';
-  audioRangeStatus.textContent = blob ? '音声の長さを読み込み中…' : '';
-  if (blob) {
-    audioPreviewUrl = URL.createObjectURL(blob);
-    audioPreview.src = audioPreviewUrl;
-    audioPreview.load();
-  } else {
+  audioDecoded = null;
+  audioStart.value = '0'; audioEnd.value = '0';
+  audioRangeStatus.textContent = blob ? '音声を読み込み中…' : '';
+  drawAudioWaveform();
+  if (!blob) {
     audioPreview.removeAttribute('src');
     audioPreview.load();
-  }
-}
-audioPreview.addEventListener('loadedmetadata', () => {
-  if (!Number.isFinite(audioPreview.duration)) {
-    audioRangeStatus.textContent = '音声の長さを取得できません。';
     return;
   }
-  // Keep the exact duration: rounding upward can make the default range invalid.
+  audioPreviewUrl = URL.createObjectURL(blob);
+  audioPreview.src = audioPreviewUrl;
+  audioPreview.load();
+  void decodeAudio(blob).then(buffer => {
+    if (token !== audioDecodeToken || audioPreviewBlob !== blob) return;
+    audioDecoded = buffer;
+    audioEnd.value = String(buffer.duration);
+    audioRangeStatus.textContent = '長さ：' + buffer.duration.toFixed(2) + '秒（波形を表示中）';
+    drawAudioWaveform();
+  }).catch(error => {
+    if (token === audioDecodeToken) audioRangeStatus.textContent =
+      (error instanceof Error ? error.message : '音声を読み取れませんでした。') + ' 切り抜きは利用できません。';
+  });
+}
+audioPreview.addEventListener('loadedmetadata', () => {
+  if (!Number.isFinite(audioPreview.duration) || audioDecoded) return;
   audioEnd.value = String(audioPreview.duration);
-  audioRangeStatus.textContent = '長さ：' + audioPreview.duration.toFixed(2) + '秒';
+  drawAudioWaveform();
 });
+for (const field of [audioStart, audioEnd]) field.addEventListener('input', drawAudioWaveform);
 audioPreview.addEventListener('timeupdate', () => {
   if (rangePlayback && audioPreview.currentTime >= Number(audioEnd.value)) stopAudioPreview();
 });
 audioPreview.addEventListener('ended', stopAudioPreview);
 get<HTMLButtonElement>('play-audio-range').addEventListener('click', async () => {
   const start = Number(audioStart.value), end = Number(audioEnd.value), duration = audioPreview.duration;
-  if (!Number.isFinite(duration) || !Number.isFinite(start) || !Number.isFinite(end) ||
-      start < 0 || end <= start || end > duration + 0.05) {
-    audioRangeStatus.textContent = '開始・終了位置を音声の長さの範囲内で指定してください。';
+  try {
+    sampleRange({ start, end }, duration, 44100);
+  } catch (error) {
+    audioRangeStatus.textContent = error instanceof Error ? error.message : '範囲が正しくありません。';
     return;
   }
   stopAudioPreview();
@@ -163,14 +203,47 @@ get<HTMLButtonElement>('play-audio-range').addEventListener('click', async () =>
   rangePlayback = true;
   try {
     await audioPreview.play();
-    audioRangeStatus.textContent = start.toFixed(1) + '〜' + end.toFixed(1) + '秒を試聴中（保存は未対応）';
+    audioRangeStatus.textContent = start.toFixed(2) + '〜' + end.toFixed(2) + '秒を試聴中';
   } catch {
     rangePlayback = false;
-    audioRangeStatus.textContent = '試聴を開始できませんでした。ブラウザの音声設定を確認してください。';
+    audioRangeStatus.textContent = '試聴できませんでした。ブラウザの音声設定を確認してください。';
+  }
+});
+audioApplyButton.addEventListener('click', async () => {
+  const id = currentSlot(), audio = store.get(id).audio;
+  const selected = audio?.processed?.ogg ?? audio?.source;
+  if (!audio || !selected || audioApplyButton.disabled) return;
+  audioApplyButton.disabled = true;
+  stopAudioPreview();
+  try {
+    const decoded = audioDecoded && selected === audioPreviewBlob ? audioDecoded : await decodeAudio(selected);
+    const start = Number(audioStart.value), requestedEnd = Number(audioEnd.value);
+    // Container metadata may differ from decoded PCM duration by a few milliseconds.
+    const end = requestedEnd > decoded.duration && requestedEnd - decoded.duration < 0.1
+      ? decoded.duration : requestedEnd;
+    sampleRange({ start, end }, decoded.duration, decoded.sampleRate);
+    audioRangeStatus.textContent = '本物のOGG Vorbisに変換中…';
+    const ogg = await encodeVorbisRange(decoded, { start, end }, fraction => {
+      if (currentSlot() === id) audioRangeStatus.textContent =
+        'OGG Vorbisに変換中… ' + Math.round(fraction * 100) + '%';
+    });
+    if (store.get(id).audio !== audio) return; // Source was removed or replaced while encoding.
+    store.update(id, { audio: { ...audio, processed: { ogg } } });
+    if (currentSlot() === id) {
+      render();
+      audioRangeStatus.textContent = 'OGG Vorbisを保存しました（' + ogg.size.toLocaleString() + ' bytes）。';
+    }
+    queueSave();
+  } catch (error) {
+    if (currentSlot() === id) audioRangeStatus.textContent =
+      '変換失敗：' + (error instanceof Error ? error.message : '再度お試しください。') + ' 元のデータは保持しました。';
+  } finally {
+    audioApplyButton.disabled = false;
   }
 });
 window.addEventListener('pagehide', () => {
   stopAudioPreview();
+  ++audioDecodeToken;
   if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
 });
 
@@ -367,7 +440,7 @@ function render(): void {
   soundInput.value = '';
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}`;
-  soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}`;
+  soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
   exportState.textContent = summary.canExport
     ? '素材の書き出し条件を満たしています。ZIP生成機能は段階07で実装します。'
@@ -449,18 +522,27 @@ soundInput.addEventListener('change', async () => {
   const id = currentSlot();
   feedback.textContent = '音声の形式を確認中…';
   try {
-    if (!file.name.toLowerCase().endsWith('.ogg') || !(await isOggVorbis(file))) {
-      throw new Error('OGG Vorbis形式として読み取れません。対応する音声を選択してください。');
+    if (file.size === 0 || file.size > MAX_AUDIO_BYTES) {
+      throw new Error('音声ファイルは20MiB以下にしてください。');
     }
+    const lower = file.name.toLowerCase();
+    const isOgg = lower.endsWith('.ogg');
+    if (!isOgg && !lower.endsWith('.mp3')) throw new Error('MP3またはOGG Vorbisを選んでください。');
+    if (isOgg && !(await isOggVorbis(file))) {
+      throw new Error('OGG Vorbis形式として読み取れません。');
+    }
+    if (!isOgg) await decodeAudio(file); // Verify MP3 before accepting it as an unfinished slot.
     store.update(id, {
       audio: {
         sourceName: file.name,
-        sourceFormat: 'ogg',
+        sourceFormat: isOgg ? 'ogg' : 'mp3',
         source: file,
-        processed: { ogg: file },
+        processed: isOgg ? { ogg: file } : null,
       },
     });
-    feedback.textContent = `Slot ${id}に音声を登録しました。`;
+    feedback.textContent = isOgg
+      ? `Slot ${id}にOGG Vorbisを登録しました。`
+      : `Slot ${id}にMP3を登録しました。「切り抜いてOGG保存」で変換してください。`;
   } catch (error) {
     feedback.textContent = error instanceof Error ? error.message : '音声を読み取れませんでした。';
   }
