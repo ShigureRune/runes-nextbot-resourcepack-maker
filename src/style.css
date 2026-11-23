@@ -7,3 +7,11 @@
 .editor-nav strong{margin-inline:auto;font-family:monospace;color:#e2d4ff}
 .editor-nav button,.editor-actions button{padding:9px 12px;font-size:.88rem}
 @media(max-width:520px){.editor-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.editor-nav strong{grid-column:1/-1;grid-row:1;text-align:center}.editor-nav button{width:100%}.editor-actions button{flex:1 1 130px}}
+
+/* Stage 05: static PNG crop/chroma editor */
+.image-editor{margin:20px 0;padding:18px;border:1px solid #535a79;border-radius:14px;background:#151a2c}
+.image-editor h3{margin:0 0 8px}
+.source-canvas{display:block;max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain;background:repeating-conic-gradient(#ccc 0% 25%,#888 0% 50%) 50% / 18px 18px;image-rendering:pixelated;cursor:crosshair;border:2px solid #737a9a;margin:12px 0}
+.image-editor input[type=checkbox]{width:24px;height:24px}
+.image-editor input[type=color]{height:46px;padding:4px}
+.image-editor input[type=range]{padding:0}
