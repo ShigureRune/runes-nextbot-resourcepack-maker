@@ -23,3 +23,20 @@ test('rejects invalid seeks and clamps the last frame', () => {
   assert.ok(frameTime(10, 10) < 10);
   for (const pos of [-1, 11, NaN, Infinity]) assert.throws(() => frameTime(pos, 10), RangeError);
 });
+
+test('video slots remain partial until an actual PNG is prepared', async () => {
+  const { NextbotSlotStore, slotStatus } = await import('../src/slots.ts');
+  const store = new NextbotSlotStore();
+  const video = new Blob(['video bytes'], { type: 'video/mp4' });
+  const visual = { sourceName: 'movie.mp4', sourceFormat: 'video' as const, source: video, processed: null };
+  store.update(1, { visual });
+  assert.equal(slotStatus(store.get(1)), 'partial');
+  assert.equal(store.summary().canExport, false);
+  store.update(1, { visual: { ...visual, processed: { png: new Blob(['png bytes']) } } });
+  assert.equal(slotStatus(store.get(1)), 'partial');
+  store.update(1, { audio: {
+    sourceName: 'sound.ogg', sourceFormat: 'ogg', source: new Blob(['ogg']),
+    processed: { ogg: new Blob(['ogg']) },
+  } });
+  assert.equal(slotStatus(store.get(1)), 'complete');
+});
