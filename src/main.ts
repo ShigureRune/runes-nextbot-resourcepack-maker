@@ -143,7 +143,8 @@ audioPreview.addEventListener('loadedmetadata', () => {
     audioRangeStatus.textContent = '音声の長さを取得できません。';
     return;
   }
-  audioEnd.value = String(Math.round(audioPreview.duration * 10) / 10);
+  // Keep the exact duration: rounding upward can make the default range invalid.
+  audioEnd.value = String(audioPreview.duration);
   audioRangeStatus.textContent = '長さ：' + audioPreview.duration.toFixed(2) + '秒';
 });
 audioPreview.addEventListener('timeupdate', () => {
