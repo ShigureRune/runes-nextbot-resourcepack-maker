@@ -10,8 +10,8 @@ app.innerHTML = `
 <main>
   <header><h1>Rune's Nextbot</h1><p class="subtitle">Resource Pack Maker · TypeScript Edition</p></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
-  <p class="note inventory-help">スロットをタップして選択。現在の編集欄は下にあります（段階03で専用画面に変更予定）。</p>
-  <section class="panel"><h2>選択したNextbotを編集（仮）</h2>
+  <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
+  <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>Nextbot専用編集画面</h2>
     <p class="note">各スロットの名前・画像・音声は別々に管理されます。現在はPNG・OGGのみ登録可能です。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
@@ -23,7 +23,7 @@ app.innerHTML = `
     <p id="image-name" class="note"></p>
     <p id="sound-name" class="note"></p>
     <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
-    <p><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></p>
+    <div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
     <p class="note">段階04までは編集中のデータはメモリ内のみ。ページを更新すると消えます。</p>
     <p id="feedback" class="status" role="status" aria-live="polite"></p>
   </section>
@@ -59,11 +59,29 @@ const slotState = get<HTMLParagraphElement>('slot-state');
 const summaryLabel = get<HTMLParagraphElement>('summary');
 const exportState = get<HTMLParagraphElement>('export-state');
 const feedback = get<HTMLParagraphElement>('feedback');
-const inventory = mountInventory(get<HTMLElement>('inventory-root'), store, (id) => {
+const editorPanel = get<HTMLElement>('editor-panel');
+const inventoryRoot = get<HTMLElement>('inventory-root');
+const inventoryHelp = document.querySelector<HTMLElement>('.inventory-help');
+const editorHeading = get<HTMLElement>('editor-heading');
+const prevButton = get<HTMLButtonElement>('prev-slot');
+const nextButton = get<HTMLButtonElement>('next-slot');
+function openEditor(id: number): void {
   slotSelect.value = String(id);
+  editorPanel.hidden = false;
+  inventoryRoot.hidden = true;
+  if (inventoryHelp) inventoryHelp.hidden = true;
   feedback.textContent = '';
   render();
-});
+  editorPanel.scrollIntoView({ block: 'start' });
+}
+function showInventory(): void {
+  editorPanel.hidden = true;
+  inventoryRoot.hidden = false;
+  if (inventoryHelp) inventoryHelp.hidden = false;
+  render();
+  inventoryRoot.scrollIntoView({ block: 'start' });
+}
+const inventory = mountInventory(inventoryRoot, store, openEditor);
 let previewUrl: string | null = null;
 
 const statusLabels = {
@@ -81,6 +99,9 @@ function render(): void {
   const state = slotStatus(slot);
   const summary = store.summary();
   inventory.render(currentSlot());
+  editorHeading.textContent = `Slot ${String(slot.id).padStart(2, '0')}`;
+  prevButton.disabled = slot.id === 1;
+  nextButton.disabled = slot.id === SLOT_COUNT;
   nameInput.value = slot.name;
   imageInput.value = '';
   soundInput.value = '';
@@ -106,6 +127,10 @@ function render(): void {
     previewLabel.textContent = '画像未登録';
   }
 }
+
+get<HTMLButtonElement>('back-list').addEventListener('click', showInventory);
+prevButton.addEventListener('click', () => { if (currentSlot() > 1) openEditor(currentSlot() - 1); });
+nextButton.addEventListener('click', () => { if (currentSlot() < SLOT_COUNT) openEditor(currentSlot() + 1); });
 
 slotSelect.addEventListener('change', () => {
   feedback.textContent = '';
@@ -138,7 +163,8 @@ imageInput.addEventListener('change', async () => {
   } catch (error) {
     feedback.textContent = error instanceof Error ? error.message : '画像を読み取れませんでした。';
   }
-  render();
+  if (currentSlot() === id) render();
+  else inventory.render(currentSlot());
 });
 
 soundInput.addEventListener('change', async () => {
@@ -162,6 +188,18 @@ soundInput.addEventListener('change', async () => {
   } catch (error) {
     feedback.textContent = error instanceof Error ? error.message : '音声を読み取れませんでした。';
   }
+  if (currentSlot() === id) render();
+  else inventory.render(currentSlot());
+});
+
+get<HTMLButtonElement>('remove-image').addEventListener('click', () => {
+  store.update(currentSlot(), { visual: null });
+  feedback.textContent = '画像を削除しました。';
+  render();
+});
+get<HTMLButtonElement>('remove-sound').addEventListener('click', () => {
+  store.update(currentSlot(), { audio: null });
+  feedback.textContent = '音声を削除しました。';
   render();
 });
 
