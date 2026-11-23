@@ -11,7 +11,7 @@ export interface VisualAsset {
   readonly sourceFormat: 'png' | 'gif' | 'video';
   readonly source: Blob;
   /** Null until a usable Minecraft texture is successfully prepared. */
-  readonly processed: { readonly png: Blob; readonly animationMcmeta?: string } | null;
+  readonly processed: { readonly png: Blob; readonly animationMcmeta?: string; readonly previewPng?: Blob } | null;
 }
 
 export interface AudioAsset {
