@@ -197,3 +197,11 @@ GitHub Pages上のWebアプリで、画像・GIF・音声・動画からNextbot�
 - `nb-frame` を `height: min(355px, 56vw)` で明確に制限、1行のGridトラックを `minmax(0,1fr)` に固定し、`overflow:hidden` で子要素のはみ出しを抑制。スクロール領域に `height:100%` / `min-height:0` / `aspect-ratio:auto` を指定して、バーと同じ高さを使う。
 - 前回の `scrollGeometry` によるthumbの上下制限も維持。スクロール領域は通常通りスクロール可能。CSSレイアウトの回帰検査を自動テストに追加。
 - Safari実機での再現試験は未実施。次はiPhone上で上下最端まで引っ張り、スクロールバーが凡例に被らないことを確認する。
+
+## スクロール貫通の根本対策（2026-11-24・第3回）
+
+- iPhone Safariで前2回の修正後もバーのレールが凡例まで伸びて見えるため、スクロールバーのレイアウトを再設計。
+- スクロール対象は従来の9列×99枠のまま。外側の `nb-frame` を固定高さ `height:min(355px,56vw)` の `position:relative` コンテナに変更、`overflow:hidden` + `clip-path:inset(0)` + `contain:paint` の三重制限を加えた。
+- 右の独立したレールはGridの子としてサイズ計算させず、同じ外枠内で `position:absolute;top:0;right:0;bottom:0;height:auto` に変更。レールそのものにも `clip-path:inset(0)` と `contain:paint` を加えた。
+- スクロール領域の幅はバー分を減じた `calc(100% - 25px)`（狭い画面では15px）、縦方向は `height:100%` を維持。既存のスクロール位置クランプも残す。
+- CSS構造の回帰テストを追加。GitHub Actionsのビルドは確認するが、iPhone Safariでのバウンス時に貫通しないかはユーザーの再検証が必要。
