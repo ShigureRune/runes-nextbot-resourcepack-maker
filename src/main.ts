@@ -1,5 +1,6 @@
 import { isOggVorbis, isPng } from './assetValidation';
 import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
+import { mountInventory } from './inventory';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -8,7 +9,9 @@ if (!app) throw new Error('App root missing');
 app.innerHTML = `
 <main>
   <header><h1>Rune's Nextbot</h1><p class="subtitle">Resource Pack Maker · TypeScript Edition</p></header>
-  <section class="panel"><h2>Nextbot素材の登録（段階01）</h2>
+  <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
+  <p class="note inventory-help">スロットをタップして選択。現在の編集欄は下にあります（段階03で専用画面に変更予定）。</p>
+  <section class="panel"><h2>選択したNextbotを編集（仮）</h2>
     <p class="note">各スロットの名前・画像・音声は別々に管理されます。現在はPNG・OGGのみ登録可能です。</p>
     <div class="fields">
       <label>登録スロット（1〜99）<select id="slot"></select></label>
@@ -56,6 +59,11 @@ const slotState = get<HTMLParagraphElement>('slot-state');
 const summaryLabel = get<HTMLParagraphElement>('summary');
 const exportState = get<HTMLParagraphElement>('export-state');
 const feedback = get<HTMLParagraphElement>('feedback');
+const inventory = mountInventory(get<HTMLElement>('inventory-root'), store, (id) => {
+  slotSelect.value = String(id);
+  feedback.textContent = '';
+  render();
+});
 let previewUrl: string | null = null;
 
 const statusLabels = {
@@ -72,6 +80,7 @@ function render(): void {
   const slot = store.get(currentSlot());
   const state = slotStatus(slot);
   const summary = store.summary();
+  inventory.render(currentSlot());
   nameInput.value = slot.name;
   imageInput.value = '';
   soundInput.value = '';
@@ -105,6 +114,7 @@ slotSelect.addEventListener('change', () => {
 
 nameInput.addEventListener('input', () => {
   store.update(currentSlot(), { name: nameInput.value });
+  inventory.render(currentSlot());
 });
 
 imageInput.addEventListener('change', async () => {
