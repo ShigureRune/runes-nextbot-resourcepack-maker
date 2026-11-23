@@ -30,10 +30,12 @@ async function parseGif(source: Blob) {
   if (width < 1 || height < 1 || width > 512 || height > 512 || width * height > 262144) {
     throw new Error('GIFは512×512px以下にしてください。');
   }
-  const frames = decompressFrames(gif, true);
-  if (!frames.length || frames.length > MAX_GIF_FRAMES) {
+  // Check frame count before decoding patches: a tiny file may contain thousands of frames.
+  const frameCount = gif.frames.filter(frame => 'image' in frame).length;
+  if (!frameCount || frameCount > MAX_GIF_FRAMES) {
     throw new Error('GIFのフレーム数は1〜24枚にしてください。');
   }
+  const frames = decompressFrames(gif, true);
   return { width, height, frames };
 }
 function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
