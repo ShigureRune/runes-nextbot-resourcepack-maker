@@ -332,6 +332,18 @@ imageInput.addEventListener('change', async () => {
     if (!file.name.toLowerCase().endsWith('.png') || !(await isPng(file))) {
       throw new Error('PNG形式として読み取れません。PNG画像を選択してください。');
     }
+    // Bound memory use before creating full-resolution canvases on mobile devices.
+    if (file.size > 16 * 1024 * 1024) {
+      throw new Error('PNGは16MB以下の画像を選択してください。');
+    }
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
+        throw new Error('画像が大きすぎます。各辺4096px以下、合計800万画素以下にしてください。');
+      }
+    } finally {
+      bitmap.close();
+    }
     store.update(id, {
       visual: {
         sourceName: file.name,
