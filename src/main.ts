@@ -65,9 +65,9 @@ app.innerHTML = `
     <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0">
       <section class="setup-block media-upload-block" aria-label="画像・GIF・動画の登録">
         <h3>画像・GIF・動画</h3>
-        <p class="note">画像または動画を選択します。動画は画像・音声の両方に自動登録され、それぞれ別の範囲で編集できます。</p>
+        <p class="note">写真ライブラリやファイルから画像を選択できます。JPEG・WebP・対応ブラウザのHEICなどはPNGに変換します。動画は画像・音声の両方に自動登録されます。</p>
         <div class="fields">
-          <label>画像・GIF（PNG / GIF）<input id="image" type="file" accept=".png,.gif,image/png,image/gif"></label>
+          <label>画像・GIF（写真ライブラリ対応）<input id="image" type="file" accept="image/*,.png,.gif,.jpg,.jpeg,.webp,.heic,.heif,.avif"></label>
           <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
         </div>
       </section>
@@ -1216,13 +1216,72 @@ nameInput.addEventListener('input', () => {
 });
 
 let imageUploadVersion = 0;
+// iOS Photos can supply JPEG/HEIC regardless of the original photo format.
+// Normalize still images to PNG so all existing crop/effect/export paths work.
+async function normalizeUploadedPhoto(file: File): Promise<Blob> {
+  if (file.size < 1 || file.size > 32 * 1024 * 1024) {
+    throw new Error('画像は32MiB以下にしてください。');
+  }
+  let bitmap: ImageBitmap | null = null;
+  let image: HTMLImageElement | null = null;
+  let url: string | null = null;
+  let canvas: HTMLCanvasElement | null = null;
+  try {
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      // Safari may support a photo format in HTMLImageElement but not ImageBitmap.
+      url = URL.createObjectURL(file);
+      image = new Image();
+      const img = image;
+      const src = url;
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => finish(false), 15000);
+        function finish(ok: boolean): void {
+          window.clearTimeout(timer);
+          img.onload = null;
+          img.onerror = null;
+          if (ok) resolve();
+          else reject(new Error('写真を読み込めません。この端末でHEICが非対応の場合はJPEGまたはPNGを選択してください。'));
+        }
+        img.onload = () => finish(true);
+        img.onerror = () => finish(false);
+        img.src = src;
+      });
+    }
+    const width = bitmap ? bitmap.width : image!.naturalWidth;
+    const height = bitmap ? bitmap.height : image!.naturalHeight;
+    if (!width || !height) throw new Error('画像の大きさを取得できませんでした。');
+    const scale = Math.min(1, 4096 / width, 4096 / height, Math.sqrt(8_000_000 / (width * height)));
+    if (scale === 1 && file.size <= 16 * 1024 * 1024 && await isPng(file)) return file;
+    canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(width * scale));
+    canvas.height = Math.max(1, Math.floor(height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('画像を変換できませんでした。');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap ?? image!, 0, 0, canvas.width, canvas.height);
+    const output = canvas;
+    return await new Promise<Blob>((resolve, reject) => {
+      output.toBlob(blob => blob && blob.size > 0 ? resolve(blob) :
+        reject(new Error('写真のPNG変換に失敗しました。')), 'image/png');
+    });
+  } finally {
+    bitmap?.close();
+    if (image) image.removeAttribute('src');
+    if (url) URL.revokeObjectURL(url);
+    if (canvas) { canvas.width = 1; canvas.height = 1; }
+  }
+}
 async function registerVisual(file: File): Promise<void> {
   const id = currentSlot();
   const version = ++imageUploadVersion;
   const previous = store.get(id).visual;
   feedback.textContent = '画像・動画を確認中…';
   try {
-    if (file.name.toLowerCase().endsWith('.gif')) {
+    const header = new Uint8Array(await file.slice(0, 6).arrayBuffer());
+    const gifSignature = String.fromCharCode(...header);
+    if (gifSignature === 'GIF87a' || gifSignature === 'GIF89a') {
       const info = await inspectGif(file);
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
@@ -1231,22 +1290,15 @@ async function registerVisual(file: File): Promise<void> {
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を登録しました。`;
     } else {
-      if (!file.name.toLowerCase().endsWith('.png') || !(await isPng(file))) {
-        throw new Error('PNG・GIF・MP4・WebM・MOVを選んでください。');
-      }
-      if (file.size > 16 * 1024 * 1024) throw new Error('PNGは16MiB以下にしてください。');
-      const bitmap = await createImageBitmap(file);
-      try {
-        if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
-          throw new Error('PNGが大きすぎます。各辺4096px以下・合計800万画素以下にしてください。');
-        }
-      } finally { bitmap.close(); }
+      const png = await normalizeUploadedPhoto(file);
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
-      videoFrameSelection = null;
+      if (currentSlot() === id) videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'png', source: file, gaming: false, effects: defaultVisualEffectSettings(), processed: { png: file },
+        sourceName: file.name, sourceFormat: 'png', source: png, gaming: false, effects: defaultVisualEffectSettings(), processed: { png },
       } });
-      if (currentSlot() === id) feedback.textContent = `Slot ${id}にPNGを登録しました。`;
+      if (currentSlot() === id) feedback.textContent = png === file
+        ? `Slot ${id}にPNGを登録しました。`
+        : `Slot ${id}に写真をPNG変換して登録しました。`;
     }
   } catch (error) {
     if (version === imageUploadVersion && currentSlot() === id) feedback.textContent =
