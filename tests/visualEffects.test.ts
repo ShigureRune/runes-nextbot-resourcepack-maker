@@ -136,3 +136,25 @@ test('glint movement stays continuous across the loop seam', () => {
       enchantGlintIntensity(x, y, 0)) < 0.01);
   }
 });
+
+test('glossy reflection stays uniform along the diagonal instead of making a grid', () => {
+  for (const phase of [0, 0.25, 0.5, 0.75]) {
+    assert.ok(Math.abs(enchantGlintIntensity(0.2, 0.8, phase) -
+      enchantGlintIntensity(0.6, 0.2, phase)) < 1e-10);
+  }
+});
+test('glossy ribbon contains a cool-white specular peak and broad violet shoulder', () => {
+  const size = 32;
+  const pixels = new Uint8ClampedArray(size * size * 4);
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
+  applyVisualEffectsToPixels(pixels, size, size, 0.25, {
+    ...defaultVisualEffectSettings(), enchant: true, enchantStrength: 100,
+  });
+  let specular = 0, violet = 0;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] > 220 && pixels[i + 1] > 210 && pixels[i + 2] > 245) specular++;
+    if (pixels[i + 2] > 150 && pixels[i + 2] - pixels[i + 1] >= 60) violet++;
+  }
+  assert.ok(specular > size * size * 0.02);
+  assert.ok(violet > specular);
+});
