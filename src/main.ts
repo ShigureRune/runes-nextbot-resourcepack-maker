@@ -20,7 +20,39 @@ app.innerHTML = `
   <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
-  <section class="panel" id="editor-panel" hidden><div class="editor-nav"><button id="back-list" type="button" class="secondary-button">← 一覧へ戻る</button><button id="prev-slot" type="button" class="secondary-button">← 前の枠</button><strong id="editor-heading">Slot 01</strong><button id="next-slot" type="button" class="secondary-button">次の枠 →</button></div><h2>スロットの編集</h2>
+
+  <section class="panel editor-workspace" id="editor-panel" hidden aria-label="Nextbotスロットの編集">
+    <div class="editor-nav editor-nav-v2">
+      <button id="back-list" type="button" class="secondary-button">← 一覧</button>
+      <strong id="editor-heading">Slot 01</strong>
+      <div class="editor-stepper" aria-label="スロットを移動">
+        <button id="prev-slot" type="button" class="secondary-button" aria-label="前のスロット">◀ 前へ</button>
+        <button id="next-slot" type="button" class="secondary-button" aria-label="次のスロット">次へ ▶</button>
+      </div>
+    </div>
+    <div class="editor-hero">
+      <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
+      <div class="editor-hero-details">
+        <div class="editor-hero-top">
+          <h2 id="editor-shortname">名前未設定</h2>
+          <p id="slot-state" class="note" role="status" aria-live="polite"></p>
+        </div>
+        <p id="image-name" class="note"></p>
+        <p id="sound-name" class="note"></p>
+        <p id="editor-next-action" class="editor-next-action">基本設定から素材を登録してください。</p>
+      </div>
+    </div>
+    <div class="editor-feedback-area">
+      <p id="save-state" class="note" role="status" aria-live="polite">保存データを読み込み中…</p>
+      <p id="feedback" class="status" role="status" aria-live="polite"></p>
+    </div>
+    <nav id="editor-tab-nav" class="editor-tab-nav" role="tablist" aria-label="編集する項目">
+      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-basic" aria-controls="editor-tab-basic" aria-selected="true" tabindex="0" data-editor-tab="basic">⚙ 基本設定</button>
+      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-image" aria-controls="editor-tab-image" aria-selected="false" tabindex="-1" data-editor-tab="image">▧ 画像・GIF</button>
+      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-video" aria-controls="editor-tab-video" aria-selected="false" tabindex="-1" data-editor-tab="video">▶ 動画</button>
+      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-audio" aria-controls="editor-tab-audio" aria-selected="false" tabindex="-1" data-editor-tab="audio">♫ 音声</button>
+    </nav>
+    <section id="editor-tab-basic" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-basic" tabindex="0">
     <section class="setup-block" aria-label="基本設定と素材登録"><h3>01 · 基本設定と素材登録</h3>
     <p class="note">素材を選んで登録。GIF・MP3・動画は編集・変換後に完成扱いになります。</p>
     <div class="fields">
@@ -29,10 +61,21 @@ app.innerHTML = `
       <label>顔画像・動画（PNG / GIF / MP4 / WebM / MOV）<input id="image" type="file" accept=".png,.gif,.mp4,.m4v,.webm,.mov,image/png,image/gif,video/mp4,video/webm,video/quicktime"></label>
       <label>音声（MP3 / OGG Vorbis）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
     </div>
-    <p id="slot-state" class="note" aria-live="polite"></p>
-    <p id="image-name" class="note"></p>
-    <p id="sound-name" class="note"></p></section>
-    <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
+    </section>
+
+      <details class="editor-danger">
+        <summary>素材の削除・スロットを初期化</summary>
+        <p class="note">削除後は自動保存されます。スロット全体の削除には確認画面が出ます。</p>
+        <h3 class="danger-heading">素材の削除</h3><div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
+      </details>
+    </section>
+    <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0" hidden>
+      <div class="editor-empty" id="editor-image-empty" hidden>
+        <strong>画像・GIFの編集</strong>
+        <p id="editor-image-empty-message">画像を登録すると切り抜き・透過・GIFプレビューを編集できます。</p>
+        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で画像を登録</button>
+        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="video" id="editor-video-jump" hidden>動画からフレームを取り込む</button>
+      </div>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
       <h3>02 · 画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
       <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
@@ -73,6 +116,14 @@ app.innerHTML = `
       <button type="button" id="apply-image">画像編集を適用</button>
       <p id="image-edit-status" class="note" role="status"></p>
     </section>
+
+    </section>
+    <section id="editor-tab-video" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-video" tabindex="0" hidden>
+      <div class="editor-empty" id="editor-video-empty" hidden>
+        <strong>動画から静止画を取り出す</strong>
+        <p>基本設定でMP4 / WebM / MOVを読み込むと、ここでフレームを選択できます。</p>
+        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で動画を登録</button>
+      </div>
     <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
       <h3>03 · 動画から静止画</h3>
       <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
@@ -83,6 +134,14 @@ app.innerHTML = `
       <p id="video-status" class="note" role="status" aria-live="polite"></p>
       <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
     </section>
+
+    </section>
+    <section id="editor-tab-audio" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-audio" tabindex="0" hidden>
+      <div class="editor-empty" id="editor-audio-empty" hidden>
+        <strong>音声の編集</strong>
+        <p>基本設定でMP3 / OGGを登録すると、ここで波形を見ながら試聴・切り抜きできます。</p>
+        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で音声を登録</button>
+      </div>
     <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
       <h3>04 · 音声編集（MP3 / OGG Vorbis）</h3>
       <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
@@ -99,9 +158,8 @@ app.innerHTML = `
       </div>
       <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
     </section>
-    <h3 class="danger-heading">素材の削除</h3><div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
-    <p id="save-state" class="note" role="status" aria-live="polite">保存データを読み込み中…</p>
-    <p id="feedback" class="status" role="status" aria-live="polite"></p>
+
+    </section>
   </section>
   <section class="panel"><h2>99枠の集計</h2>
     <p id="summary" aria-live="polite"></p>
