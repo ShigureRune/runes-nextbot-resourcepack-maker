@@ -4,7 +4,7 @@ import { editorTabGuide } from './editorTabs';
 import type { EditorTab } from './editorTabs';
 import { mountInventory } from './inventory';
 import { loadSlots, saveSlots } from './persistence';
-import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
+import { cropBounds, defaultImageSettings, fitImagePng, loadPng, processPng, sampleColor } from './imageEditor';
 import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange, normalizeDistortionAmount, decodeVideoAudio, audioBufferToWav } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
@@ -65,7 +65,7 @@ app.innerHTML = `
     <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0">
       <section class="setup-block media-upload-block" aria-label="画像・GIF・動画の登録">
         <h3>画像・GIF・動画</h3>
-        <p class="note">写真ライブラリやファイルから画像を選択できます。JPEG・WebP・対応ブラウザのHEICなどはPNGに変換します。動画は画像・音声の両方に自動登録されます。</p>
+        <p class="note">写真ライブラリやファイルから画像を選択できます。JPEG・WebP・対応ブラウザのHEICなどはPNGに変換します。画像は256×256に自動調整し、小さい画像はドットをぼかさず拡大します。動画は画像・音声の両方に自動登録されます。</p>
         <div class="fields">
           <label>画像・GIF（写真ライブラリ対応）<input id="image" type="file" accept="image/*,.png,.gif,.jpg,.jpeg,.webp,.heic,.heif,.avif"></label>
           <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
@@ -1218,7 +1218,7 @@ nameInput.addEventListener('input', () => {
 let imageUploadVersion = 0;
 // iOS Photos can supply JPEG/HEIC regardless of the original photo format.
 // Normalize still images to PNG so all existing crop/effect/export paths work.
-async function normalizeUploadedPhoto(file: File): Promise<Blob> {
+async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: Blob }> {
   if (file.size < 1 || file.size > 32 * 1024 * 1024) {
     throw new Error('画像は32MiB以下にしてください。');
   }
@@ -1253,7 +1253,10 @@ async function normalizeUploadedPhoto(file: File): Promise<Blob> {
     const height = bitmap ? bitmap.height : image!.naturalHeight;
     if (!width || !height) throw new Error('画像の大きさを取得できませんでした。');
     const scale = Math.min(1, 4096 / width, 4096 / height, Math.sqrt(8_000_000 / (width * height)));
-    if (scale === 1 && file.size <= 16 * 1024 * 1024 && await isPng(file)) return file;
+    // Produce the default texture directly from the decoded photo, not a
+    // twice-resampled editing copy. Keep the editing source at higher resolution.
+    const png = await fitImagePng(bitmap ?? image!, width, height);
+    if (scale === 1 && file.size <= 16 * 1024 * 1024 && await isPng(file)) return { source: file, png };
     canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.floor(width * scale));
     canvas.height = Math.max(1, Math.floor(height * scale));
@@ -1262,10 +1265,11 @@ async function normalizeUploadedPhoto(file: File): Promise<Blob> {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(bitmap ?? image!, 0, 0, canvas.width, canvas.height);
     const output = canvas;
-    return await new Promise<Blob>((resolve, reject) => {
+    const source = await new Promise<Blob>((resolve, reject) => {
       output.toBlob(blob => blob && blob.size > 0 ? resolve(blob) :
         reject(new Error('写真のPNG変換に失敗しました。')), 'image/png');
     });
+    return { source, png };
   } finally {
     bitmap?.close();
     if (image) image.removeAttribute('src');
@@ -1290,15 +1294,13 @@ async function registerVisual(file: File): Promise<void> {
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を登録しました。`;
     } else {
-      const png = await normalizeUploadedPhoto(file);
+      const { source, png } = await normalizeUploadedPhoto(file);
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       if (currentSlot() === id) videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'png', source: png, gaming: false, effects: defaultVisualEffectSettings(), processed: { png },
+        sourceName: file.name, sourceFormat: 'png', source, gaming: false, effects: defaultVisualEffectSettings(), processed: { png },
       } });
-      if (currentSlot() === id) feedback.textContent = png === file
-        ? `Slot ${id}にPNGを登録しました。`
-        : `Slot ${id}に写真をPNG変換して登録しました。`;
+      if (currentSlot() === id) feedback.textContent = `Slot ${id}に256×256のPNGを登録しました。元画像から切り抜き・再編集できます。`;
     }
   } catch (error) {
     if (version === imageUploadVersion && currentSlot() === id) feedback.textContent =
