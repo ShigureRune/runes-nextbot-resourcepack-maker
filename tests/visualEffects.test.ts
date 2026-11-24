@@ -119,7 +119,7 @@ test('enchant-only rendering preserves transparent pixels and alpha', () => {
   });
   assert.deepEqual([...pixels.slice(4, 8)], transparentBefore);
   assert.deepEqual([pixels[3], pixels[7], pixels[11], pixels[15]], alphaBefore);
-  assert.ok(pixels[0] >= 90 && pixels[1] >= 100 && pixels[2] >= 110);
+  assert.notDeepEqual([...pixels.slice(0, 3)], [90, 100, 110]);
 });
 
 test('zero enchant strength leaves an enchant-only image untouched', () => {
@@ -131,7 +131,7 @@ test('zero enchant strength leaves an enchant-only image untouched', () => {
   assert.deepEqual([...pixels], before);
 });
 
-test('strong glint remains visible on pure white and black images', () => {
+test('subtle glint stays visible on white and black but never creates dazzling white spots', () => {
   const size = 32;
   const white = new Uint8ClampedArray(size * size * 4).fill(255);
   const black = new Uint8ClampedArray(size * size * 4);
@@ -139,22 +139,47 @@ test('strong glint remains visible on pure white and black images', () => {
   const settings = { ...defaultVisualEffectSettings(), enchant: true, enchantStrength: 100 };
   applyVisualEffectsToPixels(white, size, size, 0.25, settings);
   applyVisualEffectsToPixels(black, size, size, 0.25, settings);
-  let whiteHighlights = 0, darkHighlights = 0;
+  let whiteGlint = 0, darkGlint = 0;
   for (let i = 0; i < white.length; i += 4) {
-    if (white[i + 2] - white[i + 1] >= 60) whiteHighlights++;
-    if (black[i + 2] >= 150 && black[i + 2] - black[i + 1] >= 60) darkHighlights++;
+    if (white[i + 2] - white[i + 1] >= 12) whiteGlint++;
+    if (black[i + 2] >= 25 && black[i + 2] - black[i + 1] >= 10) darkGlint++;
+    // Enchant glint must preserve whites rather than paint them saturated purple.
+    assert.ok(white[i] >= 205 && white[i + 1] >= 205 && white[i + 2] >= 205);
+    // No incandescent bright streaks on a black image, even at 100% strength.
+    assert.ok(black[i] <= 90 && black[i + 1] <= 90 && black[i + 2] <= 90);
     assert.equal(white[i + 3], 255);
     assert.equal(black[i + 3], 255);
   }
-  assert.ok(whiteHighlights > size * size * 0.08);
-  assert.ok(darkHighlights > size * size * 0.08);
+  assert.ok(whiteGlint > size * size * 0.08);
+  assert.ok(darkGlint > size * size * 0.08);
+});
+
+test('default subtle 35% strength leaves most of the original pixels unchanged', () => {
+  const size = 32;
+  const image = new Uint8ClampedArray(size * size * 4);
+  for (let i = 0; i < image.length; i += 4) {
+    image[i] = 120; image[i + 1] = 110; image[i + 2] = 100; image[i + 3] = 255;
+  }
+  const before = new Uint8ClampedArray(image);
+  applyVisualEffectsToPixels(image, size, size, 0.4, {
+    ...defaultVisualEffectSettings(), enchant: true,
+  });
+  let totalDrift = 0;
+  for (let i = 0; i < image.length; i += 4) {
+    totalDrift += Math.abs(image[i] - before[i]);
+    totalDrift += Math.abs(image[i + 1] - before[i + 1]);
+    totalDrift += Math.abs(image[i + 2] - before[i + 2]);
+  }
+  const meanRgbDrift = totalDrift / (size * size * 3);
+  assert.ok(meanRgbDrift < 12, `RGB drift should be gentle, got ${meanRgbDrift}`);
+  assert.ok(meanRgbDrift > 1, 'effect must remain visibly present');
 });
 test('stronger settings increase violet contrast on white textures', () => {
   const size = 16;
   const weak = new Uint8ClampedArray(size * size * 4).fill(255);
   const strong = new Uint8ClampedArray(weak);
   const settings = { ...defaultVisualEffectSettings(), enchant: true };
-  assert.equal(settings.enchantStrength, 85);
+  assert.equal(settings.enchantStrength, 35);
   applyVisualEffectsToPixels(weak, size, size, 0.5, { ...settings, enchantStrength: 25 });
   applyVisualEffectsToPixels(strong, size, size, 0.5, { ...settings, enchantStrength: 100 });
   const contrast = (pixels: Uint8ClampedArray) => {
@@ -178,18 +203,20 @@ test('glossy reflection stays uniform along the diagonal instead of making a gri
       enchantGlintIntensity(0.6, 0.2, phase)) < 1e-10);
   }
 });
-test('glossy ribbon contains a cool-white specular peak and broad violet shoulder', () => {
+test('glint uses a soft diagonal violet band without additive white specular peaks', () => {
   const size = 32;
   const pixels = new Uint8ClampedArray(size * size * 4);
-  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 80; pixels[i + 1] = 80; pixels[i + 2] = 80; pixels[i + 3] = 255;
+  }
   applyVisualEffectsToPixels(pixels, size, size, 0.25, {
     ...defaultVisualEffectSettings(), enchant: true, enchantStrength: 100,
   });
-  let specular = 0, violet = 0;
+  let violet = 0;
   for (let i = 0; i < pixels.length; i += 4) {
-    if (pixels[i] > 220 && pixels[i + 1] > 210 && pixels[i + 2] > 245) specular++;
-    if (pixels[i + 2] > 150 && pixels[i + 2] - pixels[i + 1] >= 60) violet++;
+    if (pixels[i + 2] - pixels[i + 1] >= 14) violet++;
+    // With a dark base texture there should never be a blown-out white core.
+    assert.ok(Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) <= 135);
   }
-  assert.ok(specular > size * size * 0.02);
-  assert.ok(violet > specular);
+  assert.ok(violet > size * size * 0.08);
 });
