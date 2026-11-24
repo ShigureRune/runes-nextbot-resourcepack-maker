@@ -116,6 +116,61 @@ function applyGaming(
   }
 }
 
+function fract(value: number): number {
+  return value - Math.floor(value);
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  if (edge0 === edge1) return value < edge0 ? 0 : 1;
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Procedural glint layer. This deliberately uses no Minecraft texture or copied game code:
+ * a small repeating "glint texture" is synthesized from waves, then rotated/scrolled like a
+ * texture transform. Integer UV scrolling keeps phase 0 and 1 seamless for texture animation.
+ */
+function proceduralGlintLayer(
+  nx: number, ny: number, phase: number,
+  angleRadians: number, scale: number, scrollU: number, scrollV: number, seed: number,
+): number {
+  const x = nx - 0.5, y = ny - 0.5;
+  const cos = Math.cos(angleRadians), sin = Math.sin(angleRadians);
+  const rotatedU = (x * cos - y * sin) * scale + phase * scrollU + seed;
+  const rotatedV = (x * sin + y * cos) * scale + phase * scrollV - seed * 0.37;
+
+  // Bright diagonal ridges form the repeating texture motif.
+  const ridgePosition = Math.abs(fract(rotatedU + rotatedV * 0.31) - 0.5);
+  const ridge = 1 - smoothstep(0.055, 0.19, ridgePosition);
+
+  // Break the ridges into an irregular shimmer instead of a perfectly clean sine stripe.
+  const grainA = 0.5 + 0.5 * Math.sin((rotatedU * 5.0 + rotatedV * 9.0 + seed) * Math.PI * 2);
+  const grainB = 0.5 + 0.5 * Math.sin((rotatedU * 13.0 - rotatedV * 4.0 + seed * 1.7) * Math.PI * 2);
+  const grain = 0.38 + 0.62 * (grainA * 0.58 + grainB * 0.42);
+  return Math.max(0, Math.min(1, ridge * grain));
+}
+
+/**
+ * Vanilla-inspired, independently implemented glint intensity.
+ * Two transformed procedural layers move at different angles/speeds, giving the crossed,
+ * drifting shimmer associated with enchanted rendering while staying copyright-clean.
+ */
+export function enchantGlintIntensity(nx: number, ny: number, phase: number): number {
+  const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
+  const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
+  const p = ((Number.isFinite(phase) ? phase : 0) % 1 + 1) % 1;
+  const layerA = proceduralGlintLayer(x, y, p, Math.PI / 18, 4.3, -1, 2, 0.13); // +10°
+  const layerB = proceduralGlintLayer(x, y, p, -5 * Math.PI / 18, 5.8, 2, 1, 0.61); // -50°
+  const crossing = Math.sqrt(layerA * layerB);
+  return Math.max(0, Math.min(1, layerA * 0.68 + layerB * 0.52 + crossing * 0.28));
+}
+
+function screenChannel(base: number, tint: number, amount: number): number {
+  const screened = 255 - (255 - base) * (1 - (tint / 255) * amount);
+  return Math.max(0, Math.min(255, Math.round(screened)));
+}
+
 function applyEnchantGlint(
   pixels: Uint8ClampedArray, width: number, height: number, phase: number, strength: number,
 ): void {
@@ -127,16 +182,18 @@ function applyEnchantGlint(
       if (pixels[i + 3] === 0) continue;
       const nx = width <= 1 ? 0 : x / (width - 1);
       const ny = height <= 1 ? 0 : y / (height - 1);
-      // Two narrow diagonal purple bands create a Minecraft-enchantment-like moving glint.
-      const travel = (nx + ny) * 1.7 - phase * 2.4;
-      const waveA = Math.pow(Math.max(0, Math.sin(travel * Math.PI * 2)), 10);
-      const waveB = Math.pow(Math.max(0, Math.sin((travel + 0.42) * Math.PI * 2)), 14) * 0.55;
-      const glint = Math.max(waveA, waveB) * opacity;
-      if (glint <= 0.001) continue;
-      const lift = 0.18 * glint;
-      pixels[i] = Math.min(255, Math.round(pixels[i] * (1 - lift) + 198 * glint));
-      pixels[i + 1] = Math.min(255, Math.round(pixels[i + 1] * (1 - lift) + 102 * glint));
-      pixels[i + 2] = Math.min(255, Math.round(pixels[i + 2] * (1 - lift) + 255 * glint));
+      const mask = enchantGlintIntensity(nx, ny, phase);
+      if (mask <= 0.001) continue;
+
+      // Screen-style purple/blue light preserves the source artwork instead of painting it over.
+      const amount = mask * opacity * 0.78;
+      const coolShift = 0.5 + 0.5 * Math.sin((nx - ny + phase) * Math.PI * 2);
+      const red = 174 + coolShift * 34;
+      const green = 82 + coolShift * 34;
+      const blue = 244 + coolShift * 11;
+      pixels[i] = screenChannel(pixels[i], red, amount);
+      pixels[i + 1] = screenChannel(pixels[i + 1], green, amount);
+      pixels[i + 2] = screenChannel(pixels[i + 2], blue, amount);
     }
   }
 }

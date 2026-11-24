@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, gamingHueShift,
+  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, enchantGlintIntensity, gamingHueShift,
   hasAnimatedVisualEffects, normalizeVisualEffects, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS,
 } from '../src/visualEffects.ts';
 
@@ -57,4 +57,41 @@ test('diagonal gaming and enchant glint both modify pixels without changing alph
   assert.notDeepEqual([...pixels], before);
   assert.deepEqual([pixels[3],pixels[7],pixels[11],pixels[15]],[255,255,255,255]);
   assert.notDeepEqual([...pixels.slice(0,3)], [...pixels.slice(12,15)]);
+});
+
+
+test('independent enchant glint is seamless and actually moves', () => {
+  const start = enchantGlintIntensity(0.37, 0.61, 0);
+  const loop = enchantGlintIntensity(0.37, 0.61, 1);
+  const moved = enchantGlintIntensity(0.37, 0.61, 0.25);
+  assert.ok(start >= 0 && start <= 1);
+  assert.ok(moved >= 0 && moved <= 1);
+  assert.ok(Math.abs(start - loop) < 1e-10);
+  assert.notEqual(start, moved);
+});
+
+test('enchant-only rendering preserves transparent pixels and alpha', () => {
+  const pixels = new Uint8ClampedArray([
+    90, 100, 110, 255,
+    10, 20, 30, 0,
+    120, 130, 140, 180,
+    150, 160, 170, 255,
+  ]);
+  const transparentBefore = [...pixels.slice(4, 8)];
+  const alphaBefore = [pixels[3], pixels[7], pixels[11], pixels[15]];
+  applyVisualEffectsToPixels(pixels, 2, 2, 0.4, {
+    gamingMode:'off', gamingDirection:'tl-br', enchant:true, enchantStrength:100,
+  });
+  assert.deepEqual([...pixels.slice(4, 8)], transparentBefore);
+  assert.deepEqual([pixels[3], pixels[7], pixels[11], pixels[15]], alphaBefore);
+  assert.ok(pixels[0] >= 90 && pixels[1] >= 100 && pixels[2] >= 110);
+});
+
+test('zero enchant strength leaves an enchant-only image untouched', () => {
+  const pixels = new Uint8ClampedArray([80, 90, 100, 255]);
+  const before = [...pixels];
+  applyVisualEffectsToPixels(pixels, 1, 1, 0.5, {
+    gamingMode:'off', gamingDirection:'tl-br', enchant:true, enchantStrength:0,
+  });
+  assert.deepEqual([...pixels], before);
 });
