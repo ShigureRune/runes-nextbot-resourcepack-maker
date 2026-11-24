@@ -10,7 +10,11 @@ import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleR
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
 import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
-import { createGamingAnimation } from './visualEffects';
+import {
+  applyVisualEffectsFramePng, createVisualEffectAnimation, defaultVisualEffectSettings,
+  hasAnimatedVisualEffects, normalizeVisualEffects,
+} from './visualEffects';
+import type { GamingDirection, GamingMode, VisualEffectSettings } from './visualEffects';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
 import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
@@ -92,9 +96,32 @@ app.innerHTML = `
         <label>許容範囲<input id="key-tolerance" type="range" min="0" max="255" value="45"></label>
         <label>境界のぼかし<input id="key-feather" type="range" min="0" max="100" value="20"></label>
         <label>出力サイズ<select id="image-resolution"><option value="256">256×256</option><option value="128">128×128</option></select></label>
-        <label class="effect-toggle">🌈 ゲーミングエフェクト<input id="gaming-enabled" type="checkbox"></label>
       </div>
-      <p class="effect-note">ゲーミングをONにすると色が虹色に循環します。PNGや動画から切り出した静止画も、自動で12フレームのアニメーション素材として保存されます。</p>
+      <section class="visual-effects-box" aria-label="動く画像エフェクト">
+        <h4>✨ 動く画像エフェクト</h4>
+        <div class="fields">
+          <label>🌈 ゲーミング
+            <select id="gaming-mode">
+              <option value="off">OFF</option>
+              <option value="global">全体が同時に変化</option>
+              <option value="diagonal">斜めに虹が流れる</option>
+            </select>
+          </label>
+          <label id="gaming-direction-label" hidden>斜めの向き
+            <select id="gaming-direction">
+              <option value="tl-br">↘ 左上 → 右下</option>
+              <option value="tr-bl">↙ 右上 → 左下</option>
+              <option value="bl-tr">↗ 左下 → 右上</option>
+              <option value="br-tl">↖ 右下 → 左上</option>
+            </select>
+          </label>
+          <label class="effect-toggle">✨ エンチャント風グリント<input id="enchant-enabled" type="checkbox"></label>
+          <label id="enchant-strength-label" hidden>グリントの強さ <span id="enchant-strength-value">55%</span>
+            <input id="enchant-strength" type="range" min="0" max="100" step="5" value="55">
+          </label>
+        </div>
+        <p class="effect-note">ゲーミングとエンチャント風は重ね掛けOK。PNGや動画フレームでも、動くエフェクトを選ぶと自動で12フレームのMinecraftアニメーション素材になります。</p>
+      </section>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
         <div class="fields">
@@ -507,7 +534,13 @@ const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
 const processedPreview = get<HTMLCanvasElement>('processed-preview');
-const gamingEnabled = get<HTMLInputElement>('gaming-enabled');
+const gamingMode = get<HTMLSelectElement>('gaming-mode');
+const gamingDirection = get<HTMLSelectElement>('gaming-direction');
+const gamingDirectionLabel = get<HTMLElement>('gaming-direction-label');
+const enchantEnabled = get<HTMLInputElement>('enchant-enabled');
+const enchantStrength = get<HTMLInputElement>('enchant-strength');
+const enchantStrengthLabel = get<HTMLElement>('enchant-strength-label');
+const enchantStrengthValue = get<HTMLSpanElement>('enchant-strength-value');
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
 let previewVersion = 0;
 const cropInfo = get<HTMLElement>('crop-info');
@@ -549,6 +582,37 @@ function clearGifPreview(forgetSource = false): void {
   }
 }
 
+function visualEffectSettings(): VisualEffectSettings {
+  return normalizeVisualEffects({
+    gamingMode: gamingMode.value as GamingMode,
+    gamingDirection: gamingDirection.value as GamingDirection,
+    enchant: enchantEnabled.checked,
+    enchantStrength: Number(enchantStrength.value),
+  });
+}
+
+function effectSummary(settings: VisualEffectSettings): string {
+  const parts: string[] = [];
+  if (settings.gamingMode === 'global') parts.push('🌈全体ゲーミング');
+  if (settings.gamingMode === 'diagonal') {
+    const arrows: Record<GamingDirection, string> = { 'tl-br': '↘', 'tr-bl': '↙', 'bl-tr': '↗', 'br-tl': '↖' };
+    parts.push('🌈斜めゲーミング' + arrows[settings.gamingDirection]);
+  }
+  if (settings.enchant) parts.push('✨エンチャント風' + settings.enchantStrength + '%');
+  return parts.join('＋');
+}
+
+function refreshEffectControls(): void {
+  gamingDirectionLabel.hidden = gamingMode.value !== 'diagonal';
+  enchantStrengthLabel.hidden = !enchantEnabled.checked;
+  enchantStrengthValue.textContent = normalizeVisualEffects({
+    gamingMode: gamingMode.value as GamingMode,
+    gamingDirection: gamingDirection.value as GamingDirection,
+    enchant: enchantEnabled.checked,
+    enchantStrength: Number(enchantStrength.value),
+  }).enchantStrength + '%';
+}
+
 function scheduleGifPreview(): void {
   if (get<HTMLElement>('editor-panel').hidden || !activeBitmap || gifTotalFrames < 1) return;
   const id = currentSlot();
@@ -564,8 +628,8 @@ function scheduleGifPreview(): void {
     return;
   }
   const settings = imageSettings();
-  const gaming = gamingEnabled.checked;
-  const key = JSON.stringify({ range, settings, gaming });
+  const effects = visualEffectSettings();
+  const key = JSON.stringify({ range, settings, effects });
   if (gifPreviewKey === key) return;
   clearGifPreview();
   gifPreviewKey = key;
@@ -578,7 +642,7 @@ function scheduleGifPreview(): void {
     gifPreviewTimer = null;
     try {
       // Exact same compositing, cropping, keying and Minecraft tick timing as GIF export.
-      const result = await processGif(source, settings, range, undefined, controller.signal, gaming);
+      const result = await processGif(source, settings, range, undefined, controller.signal, effects);
       if (controller.signal.aborted || version !== gifPreviewVersion ||
           currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
           store.get(id).visual?.source !== source) return;
@@ -639,12 +703,14 @@ function schedulePreview(): void {
   clearTimeout(previewTimer);
   const version = ++previewVersion;
   const bitmap = activeBitmap;
-  processedPreview.classList.toggle('gaming-preview', gamingEnabled.checked);
   if (!bitmap) return;
   scheduleGifPreview();
   previewTimer = setTimeout(async () => {
     try {
-      const png = await processPng(bitmap, imageSettings());
+      let png = await processPng(bitmap, imageSettings());
+      if (version !== previewVersion || bitmap !== activeBitmap) return;
+      const effects = visualEffectSettings();
+      if (hasAnimatedVisualEffects(effects)) png = await applyVisualEffectsFramePng(png, 0, effects);
       if (version !== previewVersion || bitmap !== activeBitmap) return;
       const image = await createImageBitmap(png);
       if (version !== previewVersion || bitmap !== activeBitmap) { image.close(); return; }
@@ -664,8 +730,12 @@ async function renderImageEditor(id: number): Promise<void> {
     return;
   }
   const slot = store.get(id);
-  gamingEnabled.checked = Boolean(slot.visual?.gaming);
-  processedPreview.classList.toggle('gaming-preview', gamingEnabled.checked);
+  const savedEffects = normalizeVisualEffects(slot.visual?.effects, Boolean(slot.visual?.gaming));
+  gamingMode.value = savedEffects.gamingMode;
+  gamingDirection.value = savedEffects.gamingDirection;
+  enchantEnabled.checked = savedEffects.enchant;
+  enchantStrength.value = String(savedEffects.enchantStrength);
+  refreshEffectControls();
   // Restore the selected slot's saved speed (including after reload/copy/move).
   const savedSpeed = normalizeGifSpeed(slot.visual?.animationSpeed);
   gifLiveSpeed.value = String(savedSpeed);
@@ -720,20 +790,29 @@ for (const id of cropFields) get<HTMLInputElement>(id).addEventListener('input',
 for (const id of ['key-enabled', 'key-color', 'key-tolerance', 'key-feather', 'image-resolution']) {
   get<HTMLInputElement>(id).addEventListener('input', schedulePreview);
 }
-gamingEnabled.addEventListener('change', () => {
+function saveVisualEffectsFromControls(): void {
+  refreshEffectControls();
   const id = currentSlot();
   const visual = store.get(id).visual;
   if (!visual) return;
-  const gaming = gamingEnabled.checked;
-  store.update(id, { visual: { ...visual, gaming, processed: null } });
-  processedPreview.classList.toggle('gaming-preview', gaming);
-  imageEditStatus.textContent = gaming
-    ? '🌈 ゲーミングON：適用すると静止画も12フレームのアニメーションになります。'
-    : 'ゲーミングをOFFにしました。画像編集を適用して保存してください。';
+  const effects = visualEffectSettings();
+  store.update(id, {
+    visual: { ...visual, effects, gaming: effects.gamingMode !== 'off', processed: null },
+  });
+  imageEditStatus.textContent = hasAnimatedVisualEffects(effects)
+    ? effectSummary(effects) + ' を設定しました。画像編集を適用すると動く素材として保存されます。'
+    : '動く画像エフェクトをOFFにしました。画像編集を適用して保存してください。';
   render();
   queueSave();
   schedulePreview();
-});
+}
+for (const control of [gamingMode, gamingDirection, enchantEnabled, enchantStrength]) {
+  control.addEventListener('input', () => {
+    refreshEffectControls();
+    if (control === enchantStrength) schedulePreview();
+  });
+  control.addEventListener('change', saveVisualEffectsFromControls);
+}
 function canvasPosition(event: PointerEvent): { x: number; y: number } {
   const rect = sourceCanvas.getBoundingClientRect();
   return {
@@ -785,8 +864,11 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
         first: Number(get<HTMLInputElement>('gif-start').value),
         last: Number(get<HTMLInputElement>('gif-end').value),
       }, fraction => {
-        if (currentSlot() === id) imageEditStatus.textContent = (visual.gaming ? 'ゲーミングGIF変換中…' : 'GIF変換中…') + Math.round(fraction * 100) + '%';
-      }, undefined, Boolean(visual.gaming));
+        if (currentSlot() === id) {
+          const effects = normalizeVisualEffects(visual.effects, Boolean(visual.gaming));
+          imageEditStatus.textContent = (hasAnimatedVisualEffects(effects) ? 'エフェクト付きGIF変換中…' : 'GIF変換中…') + Math.round(fraction * 100) + '%';
+        }
+      }, undefined, normalizeVisualEffects(visual.effects, Boolean(visual.gaming)));
       if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: {
         png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
@@ -796,15 +878,16 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
     } else {
       const png = await processPng(bitmap, imageSettings());
       if (!unchanged()) return;
-      if (visual.gaming) {
-        imageEditStatus.textContent = '🌈 ゲーミングアニメーションを生成中…';
-        const result = await createGamingAnimation(png);
+      const effects = normalizeVisualEffects(visual.effects, Boolean(visual.gaming));
+      if (hasAnimatedVisualEffects(effects)) {
+        imageEditStatus.textContent = effectSummary(effects) + ' のアニメーションを生成中…';
+        const result = await createVisualEffectAnimation(png, effects);
         if (!unchanged()) return;
-        store.update(id, { visual: { ...visual, processed: {
+        store.update(id, { visual: { ...visual, effects, gaming: effects.gamingMode !== 'off', processed: {
           png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
         } } });
         render(); queueSave();
-        imageEditStatus.textContent = `🌈 静止画をゲーミング${result.frameCount}フレームのアニメーション素材として登録しました。`;
+        imageEditStatus.textContent = `${effectSummary(effects)}：静止画を${result.frameCount}フレームのアニメーション素材として登録しました。`;
       } else {
         store.update(id, { visual: { ...visual, processed: { png } } });
         render(); queueSave();
@@ -951,7 +1034,12 @@ function render(): void {
   slotState.dataset.state = state;
   const visualNotes: string[] = [];
   if (slot.visual?.sourceFormat === 'video') visualNotes.push(slot.visual.processed ? '静止画処理済み' : 'フレーム編集待ち');
-  if (slot.visual?.gaming) visualNotes.push(slot.visual.processed?.animationMcmeta ? '🌈ゲーミングアニメ' : '🌈ゲーミング未適用');
+  if (slot.visual) {
+    const effects = normalizeVisualEffects(slot.visual.effects, Boolean(slot.visual.gaming));
+    if (hasAnimatedVisualEffects(effects)) {
+      visualNotes.push(slot.visual.processed?.animationMcmeta ? effectSummary(effects) : effectSummary(effects) + '未適用');
+    }
+  }
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${visualNotes.length ? '（' + visualNotes.join('・') + '）' : ''}`;
   const distortion = normalizeDistortionAmount(slot.audio?.distortion);
   const soundNotes: string[] = [];
@@ -1039,7 +1127,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'video', source: file, gaming: false, processed: null,
+        sourceName: file.name, sourceFormat: 'video', source: file, gaming: false, effects: defaultVisualEffectSettings(), processed: null,
       } });
       if (currentSlot() === id) feedback.textContent =
         `Slot ${id}に動画（${info.duration.toFixed(1)}秒）を登録しました。好きなフレームを取り込んでください。`;
@@ -1048,7 +1136,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'gif', source: file, gaming: false, processed: null,
+        sourceName: file.name, sourceFormat: 'gif', source: file, gaming: false, effects: defaultVisualEffectSettings(), processed: null,
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を登録しました。`;
     } else {
@@ -1065,7 +1153,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'png', source: file, gaming: false, processed: { png: file },
+        sourceName: file.name, sourceFormat: 'png', source: file, gaming: false, effects: defaultVisualEffectSettings(), processed: { png: file },
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にPNGを登録しました。`;
     }

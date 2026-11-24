@@ -1,6 +1,7 @@
 import { parseGIF, decompressFrames } from 'gifuct-js';
 import { processPng } from './imageEditor.ts';
-import { applyGamingFramePng } from './visualEffects.ts';
+import { applyVisualEffectsFramePng, defaultVisualEffectSettings, hasAnimatedVisualEffects, normalizeVisualEffects } from './visualEffects.ts';
+import type { VisualEffectSettings } from './visualEffects.ts';
 import type { ImageEditSettings } from './imageEditor.ts';
 
 export const MAX_GIF_BYTES = 8 * 1024 * 1024;
@@ -49,7 +50,7 @@ export async function processGif(
   source: Blob, settings: ImageEditSettings, range: GifFrameRange,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
-  gaming = false,
+  effects: VisualEffectSettings = defaultVisualEffectSettings(),
 ): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
   const checkCanceled = () => {
     if (signal?.aborted) throw new DOMException('GIFの処理をキャンセルしました。', 'AbortError');
@@ -59,6 +60,7 @@ export async function processGif(
   checkCanceled();
   if (!validFrameRange(range, frames.length)) throw new RangeError('GIFの開始・終了フレームを確認してください。');
   const count = range.last - range.first + 1;
+  const visualEffects = normalizeVisualEffects(effects);
   const resolution = settings.resolution;
   const composed = document.createElement('canvas');
   composed.width = width; composed.height = height;
@@ -92,7 +94,9 @@ export async function processGif(
         const frameIndex = index + 1 - range.first;
         let processed = await processPng(bitmap, settings);
         checkCanceled();
-        if (gaming) processed = await applyGamingFramePng(processed, frameIndex / count);
+        if (hasAnimatedVisualEffects(visualEffects)) {
+          processed = await applyVisualEffectsFramePng(processed, frameIndex / count, visualEffects);
+        }
         checkCanceled();
         if (!poster) poster = processed;
         const outputFrame = await createImageBitmap(processed);

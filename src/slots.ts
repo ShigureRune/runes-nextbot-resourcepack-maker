@@ -4,6 +4,8 @@
  */
 export const SLOT_COUNT = 99;
 
+import type { VisualEffectSettings } from './visualEffects';
+
 export type SlotStatus = 'empty' | 'partial' | 'complete';
 export type SlotTransferMode = 'copy' | 'move' | 'swap';
 
@@ -13,8 +15,10 @@ export interface VisualAsset {
   readonly source: Blob;
   /** Per-animation speed saved with the slot, 1 by default. Applied during asset ZIP export. */
   readonly animationSpeed?: number;
-  /** When true, the prepared texture is a rainbow-cycling animation. */
+  /** Legacy flag retained for data saved before visual effect modes were added. */
   readonly gaming?: boolean;
+  /** Rainbow direction/mode and optional enchantment-style glint. */
+  readonly effects?: VisualEffectSettings;
   /** Null until a usable Minecraft texture is successfully prepared. */
   readonly processed: { readonly png: Blob; readonly animationMcmeta?: string; readonly previewPng?: Blob } | null;
 }
