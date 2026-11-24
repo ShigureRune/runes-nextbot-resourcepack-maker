@@ -14,11 +14,11 @@ test('gaming-only live preview matches the exported 24-frame 1-tick loop', () =>
   }
 });
 
-test('enchant and combined effects match 24 frames at one Minecraft tick', () => {
+test('enchant and combined effects use 24 frames at three Minecraft ticks each', () => {
   const defaults = defaultVisualEffectSettings();
-  assert.deepEqual(effectPreviewTiming({ ...defaults, enchant: true }), { frameCount: 24, delayMs: 50 });
+  assert.deepEqual(effectPreviewTiming({ ...defaults, enchant: true }), { frameCount: 24, delayMs: 150 });
   assert.deepEqual(effectPreviewTiming({ ...defaults, gamingMode: 'diagonal', enchant: true }), {
-    frameCount: 24, delayMs: 50,
+    frameCount: 24, delayMs: 150,
   });
 });
 
