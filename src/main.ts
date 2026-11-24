@@ -26,7 +26,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / FPS-60</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / SOFT-GLINT-01</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -126,11 +126,11 @@ app.innerHTML = `
             </select>
           </label>
           <label class="effect-toggle">✨ エンチャント風グリント（独自再現）<input id="enchant-enabled" type="checkbox"></label>
-          <label id="enchant-strength-label" hidden>グリントの強さ <span id="enchant-strength-value">85%</span>
-            <input id="enchant-strength" type="range" min="0" max="100" step="5" value="85">
+          <label id="enchant-strength-label" hidden>グリントの強さ <span id="enchant-strength-value">35%</span>
+            <input id="enchant-strength" type="range" min="0" max="100" step="5" value="35">
           </label>
         </div>
-        <p class="effect-note">ゲーミングは元画像の色を直接変えず、半透明の虹色レイヤーを重ねます。全体モードは画像全体に同じ色、斜めモードは選択方向に虹色が流れます。ゲーミングとエンチャント風は重ね掛けOK。エンチャント風は網目のない滑らかな紫〜青紫の反射と、白に近い光沢の芯が斜めに流れる独自エフェクトです。白い画像でも見えます。静止画エフェクトは最大24フレーム・ゲーム内20FPSで保存。編集プレビューは最大60FPSの滑らかな表示です（端末性能に応じて変動）。</p>
+        <p class="effect-note">ゲーミングは元画像の色を直接変えず、半透明の虹色レイヤーを重ねます。全体モードは画像全体に同じ色、斜めモードは選択方向に虹色が流れます。ゲーミングとエンチャント風は重ね掛けOK。エンチャント風は薄い紫〜青紫のサテン光沢が斜めに流れる控えめな独自エフェクトです。網目や強すぎる白い光は出さず、元画像の色・表情を優先します。初期強度は35%で、スライダーから調整できます。静止画エフェクトは最大24フレーム・ゲーム内20FPSで保存。編集プレビューは最大60FPSの滑らかな表示です（端末性能に応じて変動）。</p>
       </section>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
@@ -221,7 +221,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / FPS-60</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / SOFT-GLINT-01</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
