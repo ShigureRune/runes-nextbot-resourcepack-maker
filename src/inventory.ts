@@ -49,7 +49,6 @@ export function mountInventory(
   const operationButtons = [...root.querySelectorAll<HTMLButtonElement>('.nb-tool-button')];
   let operation: SlotTransferMode | null = null;
   let sourceId: number | null = null;
-  let renderedSelectedId = 1;
 
   function slotLabel(id: number): string { return 'Slot ' + String(id).padStart(2, '0'); }
   function operationLabel(mode: SlotTransferMode): string {
@@ -175,7 +174,6 @@ export function mountInventory(
   });
 
   function render(selectedId: number): void {
-    renderedSelectedId = selectedId;
     const data = store.list();
     const summary = store.summary();
     count.textContent = String(summary.complete) + ' / ' + String(SLOT_COUNT) + ' 完成';
