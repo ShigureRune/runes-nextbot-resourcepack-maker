@@ -23,7 +23,7 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
   }
 
   const zip = new JSZip();
-  const soundEntries: Record<string, { sounds: Array<{ name: string; stream: boolean }> }> = {};
+  const soundEntries: Record<string, { sounds: Array<{ name: string; stream: boolean }> }> = {};\n  const ids = new Set<number>();
   for (const slot of completed) {
     if (!Number.isInteger(slot.id) || slot.id < 1 || slot.id > 99) {
       throw new Error('不正なスロット番号があります。');
