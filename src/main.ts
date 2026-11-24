@@ -129,7 +129,7 @@ app.innerHTML = `
             <input id="enchant-strength" type="range" min="0" max="100" step="5" value="85">
           </label>
         </div>
-        <p class="effect-note">ゲーミングとエンチャント風は重ね掛けOK。エンチャント風はゲーム本体の画像・コードを使わず、太い紫の光と明るい筋が交差して流れる強化グリントを独自再現します。白い画像にも紫の光が見えるようにしています。PNGや動画フレームでも、動くエフェクトを選ぶと自動で12フレームのMinecraftアニメーション素材になります。</p>
+        <p class="effect-note">ゲーミングとエンチャント風は重ね掛けOK。エンチャント風は網目のない滑らかな紫〜青紫の反射と、白に近い光沢の芯が斜めに流れる独自エフェクトです。白い画像でも見えます。静止画からのエンチャントは24フレーム、ゲーミングのみは12フレームのアニメーション素材になります。</p>
       </section>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
