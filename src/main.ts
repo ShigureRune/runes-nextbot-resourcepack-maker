@@ -65,7 +65,7 @@ app.innerHTML = `
     <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0">
       <section class="setup-block media-upload-block" aria-label="画像・GIF・動画の登録">
         <h3>画像・GIF・動画</h3>
-        <p class="note">画像または動画を選択します。動画は好きな場面を静止画に切り出せます。</p>
+        <p class="note">画像または動画を選択します。動画は画像・音声の両方に自動登録され、それぞれ別の範囲で編集できます。</p>
         <div class="fields">
           <label>画像・GIF（PNG / GIF）<input id="image" type="file" accept=".png,.gif,image/png,image/gif"></label>
           <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
@@ -169,10 +169,10 @@ app.innerHTML = `
         <p class="note">MP3 / OGG Vorbisをここから登録します。MP3は下の編集欄でOGGへ変換できます。</p>
         <div class="fields">
           <label>音声ファイル（MP3 / OGG）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
-          <label>動画から音声を抽出<input id="sound-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
+          <label>動画（画像・音声に登録）<input id="sound-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
         </div>
         <button id="use-image-video" type="button" class="secondary-button" hidden>画像タブの動画から音声を取り込む</button>
-        <p class="note">動画の音声トラックを読み込み、下の波形で開始・終了位置を指定できます。動画は32MiB・120秒以内。コーデック対応はブラウザに依存します。</p>
+        <p class="note">動画はどちらのタブから選んでも画像・音声の両方に登録されます。音声は下の波形で独立して切り抜けます。動画は32MiB・120秒以内。コーデック対応はブラウザに依存します。</p>
       </section>
     <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
       <h3>音声編集（MP3 / OGG / 動画音声）</h3>
@@ -329,7 +329,7 @@ function renderAudioEditor(id: number): void {
   const blob = slot.audio?.source ?? null;
   const videoAudio = slot.audio?.sourceFormat === 'video';
   audioEditor.hidden = !blob;
-  useImageVideo.hidden = slot.visual?.sourceFormat !== 'video';
+  useImageVideo.hidden = slot.visual?.sourceFormat !== 'video' || slot.audio?.source === slot.visual.source;
   if (blob === audioPreviewBlob && audioPreviewSlot === id) return;
   audioPreviewSlot = id;
   const token = ++audioDecodeToken;
@@ -1216,23 +1216,13 @@ nameInput.addEventListener('input', () => {
 });
 
 let imageUploadVersion = 0;
-async function registerVisual(file: File, expected: 'image' | 'video'): Promise<void> {
+async function registerVisual(file: File): Promise<void> {
   const id = currentSlot();
   const version = ++imageUploadVersion;
   const previous = store.get(id).visual;
   feedback.textContent = '画像・動画を確認中…';
   try {
-    if (isVideoFilename(file.name) !== (expected === 'video')) throw new Error(expected === 'video' ? '動画ファイルを選択してください。' : 'PNGまたはGIFを選択してください。');
-    if (isVideoFilename(file.name)) {
-      const info = await inspectVideo(file, file.name);
-      if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
-      videoFrameSelection = null;
-      store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'video', source: file, gaming: false, effects: defaultVisualEffectSettings(), processed: null,
-      } });
-      if (currentSlot() === id) feedback.textContent =
-        `Slot ${id}に動画（${info.duration.toFixed(1)}秒）を登録しました。好きなフレームを取り込んでください。`;
-    } else if (file.name.toLowerCase().endsWith('.gif')) {
+    if (file.name.toLowerCase().endsWith('.gif')) {
       const info = await inspectGif(file);
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
@@ -1269,12 +1259,100 @@ async function registerVisual(file: File, expected: 'image' | 'video'): Promise<
   } else inventory.render(currentSlot());
   queueSave();
 }
-for (const [input, kind] of [[imageInput, 'image'], [imageVideoInput, 'video']] as const) {
+imageInput.addEventListener('change', () => {
+  const file = imageInput.files?.[0];
+  imageInput.value = '';
+  if (file) void registerVisual(file);
+});
+
+// Both upload controls share one immutable source. Each successful track is
+// registered independently; an unsupported track never erases existing data.
+async function registerUploadedVideo(file: File): Promise<void> {
+  const id = currentSlot();
+  const previous = store.get(id);
+  if (!isVideoFilename(file.name)) {
+    feedback.textContent = 'MP4 / WebM / MOVを選択してください。';
+    return;
+  }
+  if ((previous.visual || previous.audio) &&
+      !window.confirm('このスロットの画像・音声を新しい動画の素材に置き換えますか？ 読み込めない側の元データは保持します。')) return;
+  const visualVersion = ++imageUploadVersion;
+  const soundVersion = ++audioUploadVersion;
+  feedback.textContent = '動画の映像と音声を読み込み中…';
+  const [visualResult, audioResult] = await Promise.allSettled([
+    inspectVideo(file, file.name),
+    decodeVideoAudio(file),
+  ]);
+  const latest = store.get(id);
+  const visualCurrent = visualVersion === imageUploadVersion && latest.visual === previous.visual;
+  const audioCurrent = soundVersion === audioUploadVersion && latest.audio === previous.audio;
+  if (!visualCurrent && !audioCurrent) return;
+  const visual = visualCurrent && visualResult.status === 'fulfilled';
+  const audio = audioCurrent && audioResult.status === 'fulfilled';
+  const messages: string[] = [];
+  if (visual) messages.push('画像に登録済み');
+  else if (visualCurrent && visualResult.status === 'rejected') {
+    messages.push('映像：' + (visualResult.reason instanceof Error ? visualResult.reason.message : '読み込めません'));
+  }
+  if (audio) messages.push('音声に登録済み');
+  else if (audioCurrent && audioResult.status === 'rejected') {
+    messages.push('音声：' + (audioResult.reason instanceof Error ? audioResult.reason.message : '読み込めません'));
+  }
+  if (visual || audio) {
+    if (visual && currentSlot() === id) videoFrameSelection = null;
+    store.update(id, {
+      ...(visual ? { visual: {
+        sourceName: file.name, sourceFormat: 'video' as const, source: file,
+        gaming: false, effects: defaultVisualEffectSettings(), processed: null,
+      } } : {}),
+      ...(audio ? { audio: {
+        sourceName: file.name, sourceFormat: 'video' as const, source: file,
+        distortion: 0, processed: null,
+      } } : {}),
+    });
+    queueSave();
+    if (currentSlot() === id && !editorPanel.hidden) {
+      // Avoid decoding again when switching between image and audio tabs.
+      if (audio && audioResult.status === 'fulfilled') {
+        try {
+          prepareVideoAudioPreview(id, file, audioResult.value);
+        } catch {
+          // Let the normal audio editor retry preview creation if needed.
+          audioPreviewBlob = null;
+          audioDecoded = null;
+        }
+      }
+      render();
+    } else inventory.render(currentSlot());
+  }
+  if (currentSlot() === id && !editorPanel.hidden) {
+    feedback.textContent = messages.join(' ／ ') +
+      (visual && audio ? '。画像・音声をそれぞれ切り抜けます。' : '');
+  }
+}
+for (const input of [imageVideoInput, soundVideoInput]) {
   input.addEventListener('change', () => {
     const file = input.files?.[0];
     input.value = '';
-    if (file) void registerVisual(file, kind);
+    if (file) void registerUploadedVideo(file);
   });
+}
+
+function prepareVideoAudioPreview(id: number, source: Blob, decoded: AudioBuffer): void {
+  stopAudioPreview();
+  ++audioDecodeToken;
+  if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+  audioPreviewBlob = source;
+  audioPreviewSlot = id;
+  audioDecoded = decoded;
+  audioPreviewUrl = URL.createObjectURL(audioBufferToWav(decoded));
+  audioPreview.src = audioPreviewUrl;
+  audioPreview.load();
+  audioStart.value = '0';
+  audioEnd.value = String(decoded.duration);
+  audioRangeStatus.textContent = '動画音声：' + decoded.duration.toFixed(2) + '秒。切り抜き範囲を指定してください。';
+  audioApplyButton.disabled = false;
+  drawAudioWaveform();
 }
 
 async function registerVideoAudio(source: Blob, name: string): Promise<void> {
@@ -1288,21 +1366,7 @@ async function registerVideoAudio(source: Blob, name: string): Promise<void> {
     if (token !== audioUploadVersion || store.get(id).audio !== previous) return;
     store.update(id, { audio: { sourceName: name, sourceFormat: 'video', source, distortion: 0, processed: null } });
     if (currentSlot() === id && !editorPanel.hidden) {
-      // Reuse the decoded track; avoid decoding the video a second time.
-      stopAudioPreview();
-      ++audioDecodeToken;
-      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
-      audioPreviewBlob = source;
-      audioPreviewSlot = id;
-      audioDecoded = decoded;
-      audioPreviewUrl = URL.createObjectURL(audioBufferToWav(decoded));
-      audioPreview.src = audioPreviewUrl;
-      audioPreview.load();
-      audioStart.value = '0';
-      audioEnd.value = String(decoded.duration);
-      audioRangeStatus.textContent = '動画音声：' + decoded.duration.toFixed(2) + '秒。切り抜き範囲を指定してください。';
-      audioApplyButton.disabled = false;
-      drawAudioWaveform();
+      prepareVideoAudioPreview(id, source, decoded);
       feedback.textContent = '動画の音声を取り込みました。';
       activateEditorTab('audio', true);
       render();
@@ -1312,16 +1376,14 @@ async function registerVideoAudio(source: Blob, name: string): Promise<void> {
     if (token === audioUploadVersion && currentSlot() === id) feedback.textContent = error instanceof Error ? error.message : '動画音声を読み込めませんでした。';
   }
 }
-soundVideoInput.addEventListener('change', () => {
-  const file = soundVideoInput.files?.[0];
-  soundVideoInput.value = '';
-  if (!file) return;
-  if (!isVideoFilename(file.name)) { feedback.textContent = 'MP4 / WebM / MOVを選択してください。'; return; }
-  void registerVideoAudio(file, file.name);
-});
 function useCurrentVideoAudio(): void {
   const visual = store.get(currentSlot()).visual;
-  if (visual?.sourceFormat === 'video') void registerVideoAudio(visual.source, visual.sourceName);
+  if (visual?.sourceFormat !== 'video') return;
+  if (store.get(currentSlot()).audio?.source === visual.source) {
+    activateEditorTab('audio', true);
+    return;
+  }
+  void registerVideoAudio(visual.source, visual.sourceName);
 }
 useImageVideo.addEventListener('click', useCurrentVideoAudio);
 get<HTMLButtonElement>('video-to-audio').addEventListener('click', useCurrentVideoAudio);
