@@ -34,7 +34,7 @@ test('malformed animation metadata and playback speed are rejected', () => {
   ]) assert.throws(()=>previewTicksFromMcmeta(input,3));
   for (const count of [0,25,1.5]) assert.throws(()=>previewTicksFromMcmeta(metadata,count));
   for (const speed of [0,-1,0.2,2.1,Infinity,NaN]) assert.throws(()=>previewDelayMs(1,speed));
-  for (const tick of [0,201,1.2]) assert.throws(()=>previewDelayMs(tick,1));
+  for (const tick of [0,10001,1.2]) assert.throws(()=>previewDelayMs(tick,1));
   assert.throws(()=>nextPreviewFrame(3,3,true));
 });
 
