@@ -25,7 +25,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-03 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-04 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -220,7 +220,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-03 / GLINT-03</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-04 / GLINT-03</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -1218,92 +1218,120 @@ nameInput.addEventListener('input', () => {
 let imageUploadVersion = 0;
 // iOS Photos can supply JPEG/HEIC regardless of the original photo format.
 // Normalize still images to PNG so all existing crop/effect/export paths work.
+async function readPhotoElement(blob: Blob): Promise<HTMLImageElement> {
+  const image = new Image();
+  let url: string | null = null;
+  try {
+    const src = await new Promise<string>((resolve, reject) => {
+      // Data URLs are especially reliable for Files returned by iOS Photos.
+      if (blob.size <= 16 * 1024 * 1024) {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === 'string'
+          ? resolve(reader.result)
+          : reject(new Error('写真データを読み込めませんでした。'));
+        reader.onerror = () => reject(new Error('写真データを読み込めませんでした。'));
+        reader.readAsDataURL(blob);
+      } else {
+        url = URL.createObjectURL(blob);
+        resolve(url);
+      }
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => finish(false), 25000);
+      function finish(ok: boolean): void {
+        window.clearTimeout(timer);
+        image.onload = null;
+        image.onerror = null;
+        ok ? resolve() : reject(new Error('写真を画像として開けませんでした。'));
+      }
+      image.onload = () => finish(true);
+      image.onerror = () => finish(false);
+      image.src = src;
+    });
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error('写真の大きさを取得できませんでした。');
+    return image;
+  } catch (error) {
+    image.removeAttribute('src');
+    throw error;
+  } finally {
+    if (url) URL.revokeObjectURL(url);
+  }
+}
+
 async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: Blob }> {
   if (file.size < 1 || file.size > 64 * 1024 * 1024) {
     throw new Error('画像が空か、64MiBを超えています。');
   }
+
+  const header = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+  const brands = String.fromCharCode(...header);
+  const heif = /\.(heic|heif)$/i.test(file.name) || /image\/hei[cf]/i.test(file.type) ||
+    (brands.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(brands) && !/avif|avis/.test(brands));
+
   let bitmap: ImageBitmap | null = null;
   let image: HTMLImageElement | null = null;
-  let url: string | null = null;
   let canvas: HTMLCanvasElement | null = null;
   try {
-    const loadImage = async (blob: Blob): Promise<void> => {
-      if (url) URL.revokeObjectURL(url);
-      url = URL.createObjectURL(blob);
-      image = new Image();
-      const img = image;
-      const src = url;
-      await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(() => finish(false), 25000);
-        function finish(ok: boolean): void {
-          window.clearTimeout(timer);
-          img.onload = null;
-          img.onerror = null;
-          if (ok) resolve();
-          else reject(new Error('写真をデコードできませんでした。'));
-        }
-        img.onload = () => finish(true);
-        img.onerror = () => finish(false);
-        img.src = src;
-      });
-    };
-    // Photos may have an empty or misleading MIME type. Detect HEIF by bytes.
-    const header = new Uint8Array(await file.slice(0, 64).arrayBuffer());
-    const brands = String.fromCharCode(...header);
-    const heif = /\.(heic|heif)$/i.test(file.name) || /image\/hei[cf]/i.test(file.type) ||
-      (brands.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(brands) && !/avif|avis/.test(brands));
     try {
-      // Prefer the native HTML image path on iOS; it also handles EXIF rotation.
-      await loadImage(file);
+      image = await readPhotoElement(file);
     } catch {
-      try {
-        bitmap = await createImageBitmap(file);
-      } catch {
-        if (!heif) throw new Error('画像形式を読み込めません。JPEG・PNG・GIF・HEICなどの画像を選択してください。');
+      if (heif) {
         try {
           const { heicTo } = await import('heic-to');
           const converted = await heicTo({ blob: file, type: 'image/png' });
-          await loadImage(converted);
+          if (!(converted instanceof Blob)) throw new Error('HEIC変換結果が画像ではありません。');
+          image = await readPhotoElement(converted);
         } catch {
           throw new Error('HEIC写真を変換できませんでした。写真のダウンロード完了を確認してください。');
         }
+      } else {
+        try {
+          bitmap = await createImageBitmap(file);
+        } catch {
+          throw new Error('この画像を読み込めませんでした。JPEG・PNG・GIF・WebPなどを選択してください。');
+        }
       }
     }
-    const decoded = bitmap ?? (image as HTMLImageElement | null);
-    if (!decoded) throw new Error('画像を読み込めませんでした。');
-    const width = bitmap ? bitmap.width : (decoded as HTMLImageElement).naturalWidth;
-    const height = bitmap ? bitmap.height : (decoded as HTMLImageElement).naturalHeight;
+
+    const decoded: CanvasImageSource = bitmap ?? image!;
+    const width = bitmap ? bitmap.width : image!.naturalWidth;
+    const height = bitmap ? bitmap.height : image!.naturalHeight;
     if (!width || !height) throw new Error('画像の大きさを取得できませんでした。');
-    const scale = Math.min(1, 2048 / width, 2048 / height, Math.sqrt(4_000_000 / (width * height)));
-    // Produce the default texture directly from the decoded photo, not a
-    // twice-resampled editing copy. Keep the editing source at higher resolution.
+
     const png = await fitImagePng(decoded, width, height);
+
+    const scale = Math.min(1, 2048 / width, 2048 / height, Math.sqrt(4_000_000 / (width * height)));
     if (scale === 1 && file.size <= 16 * 1024 * 1024 && await isPng(file)) return { source: file, png };
+
     canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.floor(width * scale));
     canvas.height = Math.max(1, Math.floor(height * scale));
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('画像を変換できませんでした。');
+    ctx.imageSmoothingEnabled = scale < 1;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(decoded, 0, 0, canvas.width, canvas.height);
     const output = canvas;
     const source = await new Promise<Blob>((resolve) => {
-      try { output.toBlob(blob => resolve(blob && blob.size > 0 ? blob : png), 'image/png'); }
-      catch { resolve(png); }
+      try {
+        output.toBlob(blob => resolve(blob && blob.size > 0 ? blob : png), 'image/png');
+      } catch {
+        resolve(png);
+      }
     });
     return { source, png };
   } finally {
     bitmap?.close();
-    (image as HTMLImageElement | null)?.removeAttribute('src');
-    if (url) URL.revokeObjectURL(url);
+    image?.removeAttribute('src');
     if (canvas) { canvas.width = 1; canvas.height = 1; }
   }
 }
+
 async function registerVisual(file: File): Promise<void> {
   const id = currentSlot();
   const version = ++imageUploadVersion;
   const previous = store.get(id).visual;
-  feedback.textContent = '写真を読み込み中：' + file.name;
+  feedback.textContent = `写真を読み込み中：${file.name}（${file.type || '種類不明'} / ${Math.ceil(file.size / 1024)}KB）`;
   try {
     // Materialize the iOS picker file before clearing/re-rendering its input.
     if (file.size < 1 || file.size > 64 * 1024 * 1024) throw new Error('画像が空か、64MiBを超えています。');
