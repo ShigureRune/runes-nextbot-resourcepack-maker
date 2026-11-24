@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, enchantGlintIntensity, GAMING_OVERLAY_OPACITY,
+  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, enchantGlintIntensity,
+  enchantGlintPrimaryIntensity, enchantGlintSecondaryIntensity, ENCHANT_FRAME_TICKS, GAMING_OVERLAY_OPACITY,
   hasAnimatedVisualEffects, normalizeVisualEffects, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS,
 } from '../src/visualEffects.ts';
 
@@ -119,7 +120,11 @@ test('enchant-only rendering preserves transparent pixels and alpha', () => {
   });
   assert.deepEqual([...pixels.slice(4, 8)], transparentBefore);
   assert.deepEqual([pixels[3], pixels[7], pixels[11], pixels[15]], alphaBefore);
-  assert.notDeepEqual([...pixels.slice(0, 3)], [90, 100, 110]);
+  // Some corners can be between thin streaks; test that at least one visible
+  // pixel changes without modifying the transparent one.
+  const visibleBefore = [90,100,110, 120,130,140, 150,160,170];
+  const visibleAfter = [...pixels.slice(0,3), ...pixels.slice(8,11), ...pixels.slice(12,15)];
+  assert.ok(visibleAfter.some((channel,index) => channel !== visibleBefore[index]));
 });
 
 test('zero enchant strength leaves an enchant-only image untouched', () => {
@@ -197,11 +202,59 @@ test('glint movement stays continuous across the loop seam', () => {
   }
 });
 
-test('glossy reflection stays uniform along the diagonal instead of making a grid', () => {
-  for (const phase of [0, 0.25, 0.5, 0.75]) {
-    assert.ok(Math.abs(enchantGlintIntensity(0.2, 0.8, phase) -
-      enchantGlintIntensity(0.6, 0.2, phase)) < 1e-10);
+test('two distinct diagonal streak directions are present, without forming one thick ribbon', () => {
+  // The first direction keeps x*0.78 + y*0.52 constant (\ diagonal line in coordinates).
+  const phase = 0.2;
+  assert.ok(Math.abs(enchantGlintPrimaryIntensity(0.2, 0.8, phase) -
+    enchantGlintPrimaryIntensity(0.6, 0.2, phase)) < 1e-10);
+
+  // The second direction keeps -(x*0.74) + y*0.56 constant (/ diagonal).
+  const y2 = 0.2 + 0.4 * 0.74 / 0.56;
+  assert.ok(Math.abs(enchantGlintSecondaryIntensity(0.2, 0.2, phase) -
+    enchantGlintSecondaryIntensity(0.6, y2, phase)) < 1e-10);
+
+  // There are several separated, narrow peaks instead of a single wide glow.
+  const samples = Array.from({ length: 500 }, (_, x) =>
+    enchantGlintPrimaryIntensity(x / 499, 0.5, phase) > 0.28);
+  let groups = 0, run = 0, longest = 0;
+  for (const isLine of samples) {
+    if (isLine) {
+      if (!run) groups++;
+      run++;
+      longest = Math.max(longest, run);
+    } else run = 0;
   }
+  assert.ok(groups >= 3, `expected several fine lines, got ${groups}`);
+  assert.ok(longest < 38, `one line is still too broad: ${longest} samples`);
+  assert.ok(Array.from({ length: 500 }, (_, x) =>
+    enchantGlintSecondaryIntensity(x / 499, 0.5, phase)).some(value => value > 0.9),
+  'the crossing direction must visibly produce streaks');
+});
+
+test('both directions join seamlessly at the loop boundary', () => {
+  for (const [x, y] of [[0.13, 0.22], [0.37, 0.61], [0.81, 0.46]]) {
+    assert.ok(Math.abs(enchantGlintPrimaryIntensity(x,y,0) -
+      enchantGlintPrimaryIntensity(x,y,1)) < 1e-10);
+    assert.ok(Math.abs(enchantGlintSecondaryIntensity(x,y,0) -
+      enchantGlintSecondaryIntensity(x,y,1)) < 1e-10);
+  }
+});
+
+test('enchant output is exactly three Minecraft ticks per frame', () => {
+  assert.equal(ENCHANT_FRAME_TICKS, 3);
+  assert.equal(24 * ENCHANT_FRAME_TICKS * 50, 3600);
+});
+
+test('gaming stays at its original speed when combined with slower enchant', () => {
+  const options = { ...defaultVisualEffectSettings(), gamingMode: 'global' as const,
+    enchant: true, enchantStrength: 0 };
+  const render = (phase: number) => {
+    const image = new Uint8ClampedArray([60,70,80,255]);
+    applyVisualEffectsToPixels(image, 1, 1, phase, options);
+    return [...image];
+  };
+  assert.deepEqual(render(0), render(1 / 3));
+  assert.deepEqual(render(0), render(2 / 3));
 });
 test('glint uses a soft diagonal violet band without additive white specular peaks', () => {
   const size = 32;
