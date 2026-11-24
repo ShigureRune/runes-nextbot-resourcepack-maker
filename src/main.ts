@@ -27,7 +27,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / LIGHTPACK-01</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a><button id="reload-latest" class="mod-shortcut" type="button" title="ページのキャッシュを避けて最新版を読み込む">↻ 最新版を読み込む</button></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 v0.2 / RESOURCE-PACK-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a><button id="reload-latest" class="mod-shortcut" type="button" title="ページのキャッシュを避けて最新版を読み込む">↻ 最新版を読み込む</button></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -231,7 +231,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / LIGHTPACK-01</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 v0.2 / RESOURCE-PACK-02</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
