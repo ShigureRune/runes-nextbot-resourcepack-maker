@@ -26,7 +26,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / CROSS-GLINT-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / CROSS-GLINT-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a><button id="reload-latest" class="mod-shortcut" type="button" title="ページのキャッシュを避けて最新版を読み込む">↻ 最新版を読み込む</button></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -229,6 +229,14 @@ function get<T extends HTMLElement>(id: string): T {
   if (!element) throw new Error(`Missing element: ${id}`);
   return element as T;
 }
+
+// A unique document URL avoids an old iOS Safari/GitHub Pages HTML cache.
+// Hashed Vite assets are fetched again when the latest index is requested.
+get<HTMLButtonElement>('reload-latest').addEventListener('click', () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('reload', String(Date.now()));
+  window.location.assign(url.href);
+});
 
 const modDownloadStatus = get<HTMLElement>('mod-download-status');
 const modDownloadLink = get<HTMLAnchorElement>('mod-download-link');
