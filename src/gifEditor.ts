@@ -51,7 +51,7 @@ export async function processGif(
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
   effects: VisualEffectSettings = defaultVisualEffectSettings(),
-): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
+): Promise<{ png: Blob; previewPng: Blob; basePng: Blob; animationMcmeta: string; frameCount: number }> {
   const checkCanceled = () => {
     if (signal?.aborted) throw new DOMException('GIFの処理をキャンセルしました。', 'AbortError');
   };
@@ -72,6 +72,7 @@ export async function processGif(
   let previous: (typeof frames)[number] | null = null;
   let previousSaved: ImageData | null = null;
   let poster: Blob | null = null;
+  let basePng: Blob | null = null;
   const timings: Array<{ index: number; time: number }> = [];
   for (let index = 0; index < frames.length; index++) {
     checkCanceled();
@@ -94,6 +95,7 @@ export async function processGif(
         const frameIndex = index + 1 - range.first;
         let processed = await processPng(bitmap, settings);
         checkCanceled();
+        if (!basePng) basePng = processed;
         if (hasAnimatedVisualEffects(visualEffects)) {
           processed = await applyVisualEffectsFramePng(processed, frameIndex / count, visualEffects);
         }
@@ -110,12 +112,12 @@ export async function processGif(
     }
     previous = frame;
   }
-  if (!poster) throw new Error('GIFのフレームを生成できませんでした。');
+  if (!poster || !basePng) throw new Error('GIFのフレームを生成できませんでした。');
   checkCanceled();
   const png = await canvasPng(sprite);
   checkCanceled();
   return {
-    png, previewPng: poster,
+    png, previewPng: poster, basePng,
     animationMcmeta: JSON.stringify({ animation: { frametime: 1, frames: timings } }, null, 2),
     frameCount: count,
   };

@@ -20,7 +20,14 @@ export interface VisualAsset {
   /** Rainbow direction/mode and optional enchantment-style glint. */
   readonly effects?: VisualEffectSettings;
   /** Null until a usable Minecraft texture is successfully prepared. */
-  readonly processed: { readonly png: Blob; readonly animationMcmeta?: string; readonly previewPng?: Blob } | null;
+  readonly processed: {
+    /** Baked texture, may contain a vertical animation strip with visual effects. */
+    readonly png: Blob;
+    readonly animationMcmeta?: string;
+    readonly previewPng?: Blob;
+    /** Un-tinted, cropped/keyed still image for lightweight MOD pack export. */
+    readonly basePng?: Blob;
+  } | null;
 }
 
 export interface AudioAsset {
