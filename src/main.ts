@@ -1153,6 +1153,30 @@ let storedAnimationBlob: Blob | null = null;
 let storedAnimationMeta: string | null = null;
 let storedAnimationSlot = 0;
 let storedAnimationVersion = 0;
+let liveHeroPreviewEnabled = false;
+
+/** Keep the large preview in sync with the edited live effect, even before saving. */
+function paintLiveHeroFrame(): void {
+  if (editorPanel.hidden || activeEditorTab !== 'image' || !processedPreviewPlayer.isAnimated ||
+      !activeBitmap || bitmapSlot !== currentSlot() || !hasAnimatedVisualEffects(visualEffectSettings())) return;
+  if (!liveHeroPreviewEnabled) {
+    clearStoredPreviewAnimation();
+    liveHeroPreviewEnabled = true;
+  }
+  if (storedPreviewCanvas.width !== processedPreview.width || storedPreviewCanvas.height !== processedPreview.height) {
+    storedPreviewCanvas.width = processedPreview.width;
+    storedPreviewCanvas.height = processedPreview.height;
+  }
+  const context = storedPreviewCanvas.getContext('2d');
+  if (context) {
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0, 0, storedPreviewCanvas.width, storedPreviewCanvas.height);
+    context.drawImage(processedPreview, 0, 0);
+  }
+  storedPreviewCanvas.hidden = false;
+  preview.hidden = true;
+  previewLabel.textContent = '編集中のライブプレビュー';
+}
 
 function clearStoredPreviewAnimation(): void {
   ++storedAnimationVersion;
@@ -1252,23 +1276,31 @@ function render(): void {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   const processed = slot.visual?.processed;
-  if (processed?.png) {
-    previewUrl = URL.createObjectURL(processed.previewPng ?? processed.png);
-    preview.src = previewUrl;
-    previewLabel.textContent = '登録済み画像';
-    if (!editorPanel.hidden && processed.animationMcmeta) {
-      renderStoredPreviewAnimation(slot.id, processed.png, processed.animationMcmeta);
-      preview.hidden = storedPreviewPlayer.hasFrames;
-      storedPreviewCanvas.hidden = !storedPreviewPlayer.hasFrames;
+  const liveEditor = !editorPanel.hidden && activeEditorTab === 'image' &&
+    bitmapSlot === slot.id && processedPreviewPlayer.isAnimated &&
+    hasAnimatedVisualEffects(visualEffectSettings());
+  if (liveEditor) {
+    paintLiveHeroFrame();
+  } else {
+    liveHeroPreviewEnabled = false;
+    if (processed?.png) {
+      previewUrl = URL.createObjectURL(processed.previewPng ?? processed.png);
+      preview.src = previewUrl;
+      previewLabel.textContent = '登録済み画像';
+      if (!editorPanel.hidden && processed.animationMcmeta) {
+        renderStoredPreviewAnimation(slot.id, processed.png, processed.animationMcmeta);
+        preview.hidden = storedPreviewPlayer.hasFrames;
+        storedPreviewCanvas.hidden = !storedPreviewPlayer.hasFrames;
+      } else {
+        clearStoredPreviewAnimation();
+        preview.hidden = false;
+      }
     } else {
       clearStoredPreviewAnimation();
-      preview.hidden = false;
+      preview.removeAttribute('src');
+      preview.hidden = true;
+      previewLabel.textContent = '画像未登録';
     }
-  } else {
-    clearStoredPreviewAnimation();
-    preview.removeAttribute('src');
-    preview.hidden = true;
-    previewLabel.textContent = '画像未登録';
   }
 }
 
