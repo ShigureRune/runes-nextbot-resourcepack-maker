@@ -26,7 +26,7 @@ export function editorTabGuide(slot: NextbotSlot, hasCapturedVideoFrame: boolean
   if (!visual) nextAction = '次にすること：基本設定で顔画像・GIF・動画を登録しよう。';
   else if (needsVideoCapture && !visual.processed) nextAction = '次にすること：動画タブで好きな場面を取り込もう。';
   else if (!visual.processed) nextAction = '次にすること：画像・GIFタブで編集を適用しよう。';
-  else if (!audio) nextAction = '次にすること：基本設定で効果音を登録しよう。';
+  else if (!audio) nextAction = '次にすること：基本設定で音声（効果音）を登録しよう。';
   else if (!audio.processed) nextAction = '次にすること：音声タブでOGGへ変換しよう。';
   else nextAction = '素材が揃ったよ！必要なら編集して、一覧へ戻ろう。';
   return {
