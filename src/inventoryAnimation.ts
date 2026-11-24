@@ -90,7 +90,9 @@ export class InventoryAnimationController {
     canvas.width = 48;
     canvas.height = 48;
     canvas.dataset.animationSlot = String(id);
-    canvas.hidden = true;
+    // Keep the canvas in layout so IntersectionObserver can see it before decoding.
+    canvas.hidden = false;
+    canvas.style.opacity = '0';
     const item: SlotAnimation = {
       id, canvas, png, mcmeta, speed, interpolate, ticks, visible: false,
       loading: false, generation: 0, thumb: null, frames: null, output: null, lastIndex: -1,
@@ -154,7 +156,7 @@ export class InventoryAnimationController {
     item.frames = null;
     item.output = null;
     item.lastIndex = -1;
-    item.canvas.hidden = true;
+    item.canvas.style.opacity = '0';
     this.queue.delete(item.id);
   }
 
@@ -174,7 +176,7 @@ export class InventoryAnimationController {
         item.thumb = data.thumb;
         item.frames = data.frames;
         item.output = data.output;
-        item.canvas.hidden = false;
+        item.canvas.style.opacity = '1';
         item.lastIndex = -1;
         this.draw(item, 0);
         this.start();
