@@ -1250,7 +1250,7 @@ async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: 
     // Photos may have an empty or misleading MIME type. Detect HEIF by bytes.
     const header = new Uint8Array(await file.slice(0, 64).arrayBuffer());
     const brands = String.fromCharCode(...header);
-    const heif = /\\.(heic|heif)$/i.test(file.name) || /image\\/hei[cf]/i.test(file.type) ||
+    const heif = /\.(heic|heif)$/i.test(file.name) || /image\/hei[cf]/i.test(file.type) ||
       (brands.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(brands) && !/avif|avis/.test(brands));
     try {
       // Prefer the native HTML image path on iOS; it also handles EXIF rotation.
