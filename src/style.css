@@ -51,7 +51,7 @@ input[type=range]{min-height:30px;padding:0;border:0;box-shadow:none;background:
 #image-name,#sound-name{margin:5px 0}
 .preview{display:flex;align-items:center;flex-wrap:wrap;gap:16px;min-height:126px;margin:14px 0;padding:15px;background:#a7a7a7;border:3px solid;border-color:#626262 #f6f6f6 #f6f6f6 #626262}
 .preview::before{content:"FACE";font:900 .8rem ui-monospace,monospace;letter-spacing:.12em}
-.preview img{width:112px;height:112px;object-fit:contain;image-rendering:pixelated;background:repeating-conic-gradient(#b9c3b4 0 25%,#8c9688 0 50%) 50%/16px 16px;border:3px solid #656565}
+.preview img,.preview canvas{width:112px;height:112px;object-fit:contain;image-rendering:pixelated;background:repeating-conic-gradient(#b9c3b4 0 25%,#8c9688 0 50%) 50%/16px 16px;border:3px solid #656565}
 .image-editor{margin:19px 0;padding:clamp(12px,2vw,18px);background:#b4b4b4;color:#242424;border:4px solid;border-color:#737373 #efefef #efefef #737373}
 .image-editor h3{margin:0 0 13px;background:#444;color:#fff;padding:9px 12px;border-left:5px solid #78b654;font-size:1rem}
 .image-editor .note{color:#323232}
@@ -117,7 +117,7 @@ box-shadow:3px 3px 0 #333;font-weight:850}
 .editor-hero{display:flex;align-items:stretch;gap:14px;margin:0 0 12px;padding:13px;background:#b9b9b9;border:3px solid;border-color:#777 #eee #eee #777}
 .editor-hero .preview{flex:0 0 138px;width:138px;min-height:0;margin:0;padding:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
 .editor-hero .preview::before{display:block;margin:0}
-.editor-hero .preview img{width:min(100%,110px);height:auto;aspect-ratio:1/1}
+.editor-hero .preview img,.editor-hero .preview canvas{width:min(100%,110px);height:auto;aspect-ratio:1/1}
 .editor-hero .preview #preview-label{text-align:center;font-size:.68rem;margin:0}
 .editor-hero-details{flex:1;min-width:0;align-self:center}
 .editor-hero-top{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-bottom:8px}
@@ -162,7 +162,7 @@ box-shadow:3px 3px 0 #333;font-weight:850}
   .editor-nav-v2 .editor-stepper button{width:100%}
   .editor-hero{gap:9px;padding:9px}
   .editor-hero .preview{flex-basis:92px;width:92px;padding:5px}
-  .editor-hero .preview img{width:76px}
+  .editor-hero .preview img,.editor-hero .preview canvas{width:76px}
   .editor-hero-details{align-self:center}
   .editor-hero-top{display:block}
   #editor-shortname{font-size:1rem}
@@ -179,7 +179,7 @@ box-shadow:3px 3px 0 #333;font-weight:850}
 .effect-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:54px;padding:8px 10px;background:#d7d7d7;border:3px solid;border-color:#777 #eee #eee #777}
 .effect-toggle input{flex:0 0 auto;margin:0}
 .effect-note{margin:10px 0 14px;padding:8px 10px;background:#c7c7c7;border-left:4px solid #7156a8;font-size:.84rem;line-height:1.55}
-/* Visual effect controls. The canvas preview shows a real processed effect frame. */
+/* Visual effect controls. The processed canvas renders the animated effect at export frame timing. */
 .visual-effects-box{margin:14px 0;padding:12px;background:#bdb7c7;border:3px solid;border-color:#766d84 #f0eaf7 #f0eaf7 #766d84}
 .visual-effects-box h4{margin:0 0 10px;font:900 .95rem ui-monospace,monospace;color:#392d49}
 .visual-effects-box .fields{margin:8px 0}
