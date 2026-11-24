@@ -26,7 +26,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / LIVE-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / FPS-60</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -221,7 +221,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / LIVE-02</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / FPS-60</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -1116,6 +1116,7 @@ function openEditor(id: number): void {
   slotSelect.value = String(id);
   editorPanel.hidden = false;
   inventoryRoot.hidden = true;
+  inventory.setVisible(false);
   if (inventoryHelp) inventoryHelp.hidden = true;
   feedback.textContent = '';
   if (fromInventory) activateEditorTab('image');
@@ -1136,6 +1137,7 @@ function showInventory(): void {
   bitmapSlot = 0;
   editorPanel.hidden = true;
   inventoryRoot.hidden = false;
+  inventory.setVisible(true);
   if (inventoryHelp) inventoryHelp.hidden = false;
   render();
   inventoryRoot.scrollIntoView({ block: 'start' });
