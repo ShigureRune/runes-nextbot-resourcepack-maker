@@ -127,54 +127,28 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 }
 
 /**
- * Procedural glint layer. This deliberately uses no Minecraft texture or copied game code:
- * a small repeating "glint texture" is synthesized from waves, then rotated/scrolled like a
- * texture transform. Integer UV scrolling keeps phase 0 and 1 seamless for texture animation.
+ * Smooth specular ribbon, independently generated without game assets.
+ * One diagonal coordinate drives the entire reflection: no crossing lattice,
+ * speckle, or second stripe direction. A full phase is exactly one repeat.
  */
-function proceduralGlintLayer(
-  nx: number, ny: number, phase: number,
-  angleRadians: number, scale: number, scrollU: number, scrollV: number, seed: number,
-): number {
-  const x = nx - 0.5, y = ny - 0.5;
-  const cos = Math.cos(angleRadians), sin = Math.sin(angleRadians);
-  const rotatedU = (x * cos - y * sin) * scale + phase * scrollU + seed;
-  const rotatedV = (x * sin + y * cos) * scale + phase * scrollV - seed * 0.37;
-
-  // Bright diagonal ridges form the repeating texture motif.
-  // Periodic warp, rather than a fractional UV coefficient, keeps the loop seamless.
-  const warp = 0.055 * Math.sin((rotatedV * 2 + seed) * Math.PI * 2);
-  const ridgePosition = Math.abs(fract(rotatedU + warp) - 0.5);
-  const core = 1 - smoothstep(0.045, 0.145, ridgePosition);
-  const halo = 1 - smoothstep(0.13, 0.34, ridgePosition);
-  const ridge = core * 0.66 + halo * 0.48;
-
-  // Break the ridges into an irregular shimmer instead of a perfectly clean sine stripe.
-  const grainA = 0.5 + 0.5 * Math.sin((rotatedU * 5.0 + rotatedV * 9.0 + seed) * Math.PI * 2);
-  const grainB = 0.5 + 0.5 * Math.sin((rotatedU * 13.0 - rotatedV * 4.0 + seed * 1.7) * Math.PI * 2);
-  // Continuous luminous bands: fine texture should enrich the streaks,
-  // not break them into faint speckles.
-  const grain = 0.74 + 0.26 * (grainA * 0.58 + grainB * 0.42);
-  return Math.max(0, Math.min(1, ridge * grain));
-}
-
-/**
- * Vanilla-inspired, independently implemented glint intensity.
- * Two transformed procedural layers move at different angles/speeds, giving the crossed,
- * drifting shimmer associated with enchanted rendering while staying copyright-clean.
- */
-export function enchantGlintIntensity(nx: number, ny: number, phase: number): number {
+function glintDistance(nx: number, ny: number, phase: number): number {
   const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
   const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
-  const p = ((Number.isFinite(phase) ? phase : 0) % 1 + 1) % 1;
-  const layerA = proceduralGlintLayer(x, y, p, Math.PI / 18, 3.3, -1, 2, 0.13);
-  const layerB = proceduralGlintLayer(x, y, p, -5 * Math.PI / 18, 4.8, 2, 1, 0.61);
-  const crossing = Math.sqrt(layerA * layerB);
-  return Math.max(0, Math.min(1, layerA * 1.05 + layerB * 0.82 + crossing * 0.48));
+  const p = Number.isFinite(phase) ? phase : 0;
+  return fract(x * 0.78 + y * 0.52 - p + 0.09) - 0.5;
+}
+
+function ribbonMask(distance: number): number {
+  // Soft, broad reflection with dark gaps between successive sweeps.
+  return 1 - smoothstep(0.035, 0.31, Math.abs(distance));
+}
+
+export function enchantGlintIntensity(nx: number, ny: number, phase: number): number {
+  return ribbonMask(glintDistance(nx, ny, phase));
 }
 
 function screenChannel(base: number, tint: number, amount: number): number {
-  const screened = 255 - (255 - base) * (1 - (tint / 255) * amount);
-  return Math.max(0, Math.min(255, Math.round(screened)));
+  return 255 - (255 - base) * (1 - tint / 255 * amount);
 }
 
 function applyEnchantGlint(
@@ -188,24 +162,28 @@ function applyEnchantGlint(
       if (pixels[i + 3] === 0) continue;
       const nx = width <= 1 ? 0 : x / (width - 1);
       const ny = height <= 1 ? 0 : y / (height - 1);
-      const mask = enchantGlintIntensity(nx, ny, phase);
-      if (mask <= 0.001) continue;
+      const d = glintDistance(nx, ny, phase);
+      const body = ribbonMask(d);
+      if (body <= 0.001) continue;
 
-      const amount = Math.min(1, Math.pow(mask, 0.82) * opacity * 1.35);
-      const coolShift = 0.5 + 0.5 * Math.sin((nx - ny + phase) * Math.PI * 2);
-      const highlight = smoothstep(0.65, 1, mask);
-      const red = 205 + coolShift * 25 + highlight * 18;
-      const green = 45 + coolShift * 30 + highlight * 70;
+      // Purple -> indigo along the broad shoulder, with a narrow, silky
+      // cool-white specular peak on the same diagonal, not a crossing line.
+      const cool = smoothstep(-0.23, 0.23, d);
+      const red = 188 - cool * 52;
+      const green = 53 + cool * 26;
       const blue = 255;
-      // Screen makes dark textures luminous, but pure white cannot become
-      // brighter. Add a saturated violet tint on light textures as well.
+      const light = body * opacity * 0.86;
       const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
-      const tintMix = smoothstep(150, 245, luminance) * amount * 0.85;
-      const tint = (base: number, color: number) =>
-        Math.round(screenChannel(base, color, amount) * (1 - tintMix) + color * tintMix);
-      pixels[i] = tint(pixels[i], red);
-      pixels[i + 1] = tint(pixels[i + 1], green);
-      pixels[i + 2] = tint(pixels[i + 2], blue);
+      const reflect = smoothstep(145, 245, luminance) * body * opacity * 0.76;
+      const specular = (1 - smoothstep(0.012, 0.075, Math.abs(d - 0.035))) * opacity * 0.92;
+      const tint = (base: number, color: number, peak: number) => {
+        const lit = screenChannel(base, color, light);
+        const colored = lit * (1 - reflect) + color * reflect;
+        return Math.round(colored * (1 - specular) + peak * specular);
+      };
+      pixels[i] = tint(pixels[i], red, 245);
+      pixels[i + 1] = tint(pixels[i + 1], green, 239);
+      pixels[i + 2] = tint(pixels[i + 2], blue, 255);
     }
   }
 }
@@ -251,7 +229,7 @@ export async function applyVisualEffectsFramePng(
 export async function createVisualEffectAnimation(
   source: Blob,
   rawSettings: VisualEffectSettings,
-  frameCount = GAMING_FRAME_COUNT,
+  frameCount = rawSettings.enchant ? 24 : GAMING_FRAME_COUNT,
 ): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
   const settings = normalizeVisualEffects(rawSettings);
   if (!hasAnimatedVisualEffects(settings)) throw new Error('動く画像エフェクトが選択されていません。');
@@ -284,7 +262,7 @@ export async function createVisualEffectAnimation(
       frameContext.putImageData(pixels, 0, 0);
       spriteContext.drawImage(frameCanvas, 0, index * size);
       if (index === 0) previewPng = await canvasPng(frameCanvas);
-      frames.push({ index, time: GAMING_FRAME_TICKS });
+      frames.push({ index, time: settings.enchant && frameCount === 24 ? 1 : GAMING_FRAME_TICKS });
     }
     if (!previewPng) throw new Error('エフェクトプレビューを生成できませんでした。');
     return {
