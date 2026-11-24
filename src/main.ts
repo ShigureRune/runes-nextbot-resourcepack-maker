@@ -26,7 +26,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / LIVE-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -95,7 +95,7 @@ app.innerHTML = `
     </section>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
       <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
-      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用・動くエフェクトは自動再生）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
+      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用・動くエフェクトは自動再生）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後の動くプレビュー"></canvas><div class="effect-preview-controls"><span id="effect-live-status" aria-live="off">画像を読み込み中…</span><button id="effect-live-toggle" type="button" class="secondary-button" disabled>再生</button></div>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
         <label>切り抜き Y<input id="crop-y" type="number" min="0" step="1"></label>
@@ -221,7 +221,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / GLINT-03</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / LIVE-02</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -598,7 +598,14 @@ const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
 const processedPreview = get<HTMLCanvasElement>('processed-preview');
-const processedPreviewPlayer = new VisualEffectPreviewPlayer(processedPreview);
+const effectLiveStatus = get<HTMLElement>('effect-live-status');
+const effectLiveToggle = get<HTMLButtonElement>('effect-live-toggle');
+const processedPreviewPlayer = new VisualEffectPreviewPlayer(processedPreview, (frame, count) => {
+  effectLiveStatus.textContent = count > 1
+    ? `🌈 ライブプレビュー：${frame + 1} / ${count}フレーム`
+    : '静止画プレビュー';
+  if (count > 1) paintLiveHeroFrame();
+});
 const storedPreviewCanvas = get<HTMLCanvasElement>('preview-animation');
 const storedPreviewPlayer = new GifPreviewPlayer(storedPreviewCanvas, () => {});
 const gamingMode = get<HTMLSelectElement>('gaming-mode');
@@ -627,6 +634,11 @@ const gifPlayer = new GifPreviewPlayer(gifLiveCanvas, (frame, total, playing) =>
   gifLiveToggle.disabled = total === 0;
   gifLiveToggle.textContent = playing ? '一時停止' : '再生';
   gifLiveFrame.textContent = total ? `フレーム：${frame + 1} / ${total}` : 'フレーム：―';
+});
+effectLiveToggle.addEventListener('click', () => {
+  if (processedPreviewPlayer.isPlaying) processedPreviewPlayer.pause();
+  else processedPreviewPlayer.play();
+  effectLiveToggle.textContent = processedPreviewPlayer.isPlaying ? '一時停止' : '再生';
 });
 let gifSource: Blob | null = null;
 let gifTotalFrames = 0;
@@ -753,9 +765,11 @@ document.addEventListener('visibilitychange', () => {
     gifPlayer.pause();
     processedPreviewPlayer.pause();
     storedPreviewPlayer.pause();
+    effectLiveToggle.textContent = '再生';
   } else if (!get<HTMLElement>('editor-panel').hidden) {
     if (activeEditorTab === 'image') processedPreviewPlayer.play();
     storedPreviewPlayer.play();
+    effectLiveToggle.textContent = processedPreviewPlayer.isPlaying ? '一時停止' : '再生';
   }
 });
 window.addEventListener('pagehide', () => {
@@ -786,6 +800,8 @@ function updateCropInfo(): void {
 function schedulePreview(): void {
   clearTimeout(previewTimer);
   processedPreviewPlayer.pause();
+  effectLiveToggle.disabled = true;
+  effectLiveToggle.textContent = '再生';
   const version = ++previewVersion;
   const bitmap = activeBitmap;
   if (!bitmap) { processedPreviewPlayer.clear(); return; }
@@ -805,6 +821,8 @@ function schedulePreview(): void {
       try {
         processedPreviewPlayer.setSource(image, effects);
         if (document.hidden) processedPreviewPlayer.pause();
+        effectLiveToggle.disabled = !processedPreviewPlayer.isAnimated;
+        effectLiveToggle.textContent = processedPreviewPlayer.isPlaying ? '一時停止' : '再生';
       } finally {
         image.close();
       }
@@ -1066,7 +1084,10 @@ function activateEditorTab(tab: EditorTab, scrollToTabs = false): void {
     renderVideoEditor(id);
     void renderImageEditor(id);
   }
-  if (tab === 'audio') renderAudioEditor(id);
+  if (tab === 'audio') {
+    renderAudioEditor(id);
+    render();
+  }
   if (scrollToTabs) editorTabNav.scrollIntoView({ block: 'start' });
 }
 for (const button of editorTabButtons) {
