@@ -15,7 +15,8 @@ import {
   hasAnimatedVisualEffects, normalizeVisualEffects,
 } from './visualEffects';
 import type { GamingDirection, GamingMode, VisualEffectSettings } from './visualEffects';
-import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
+import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime, videoAnimationPlan, processVideoAnimation } from './videoEditor';
+import type { VideoAnimationRange } from './videoEditor';
 import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
 
@@ -70,13 +71,24 @@ app.innerHTML = `
           <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
         </div>
       </section>
-    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
-      <h3>動画から静止画</h3>
+    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと素材抽出">
+      <h3>動画から素材を抽出</h3>
       <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
       <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
       <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
       <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
       <div class="editor-actions"><button id="capture-video" type="button">このフレームを画像編集へ</button><button id="video-to-audio" class="secondary-button" type="button">この動画の音声を編集へ</button></div>
+      <section class="setup-block" aria-label="動画のアニメーション抽出">
+        <h4>動画からアニメーション</h4>
+        <div class="fields">
+          <label>開始（秒）<input id="video-animation-start" type="number" min="0" step="0.05" value="0"></label>
+          <label>終了（秒）<input id="video-animation-end" type="number" min="0.1" step="0.05" value="1"></label>
+          <label>最大フレーム数<input id="video-animation-count" type="number" min="2" max="24" step="1" value="24"></label>
+        </div>
+        <div class="editor-actions"><button id="video-start-here" class="secondary-button" type="button">現在位置を開始に</button><button id="video-end-here" class="secondary-button" type="button">現在位置を終了に</button></div>
+        <button id="capture-video-animation" type="button" disabled>この区間をアニメーション編集へ</button>
+        <p class="note">最大24フレーム。短い区間は20fps相当（50ms/tick）に合わせてフレーム数を調整。全フレームに同じ切り抜き・透過・エフェクトを適用できます。</p>
+      </section>
       <p id="video-status" class="note" role="status" aria-live="polite"></p>
       <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。音声は音声タブで切り抜いてOGGにできます。</p>
     </section>
@@ -126,9 +138,10 @@ app.innerHTML = `
           <label>GIF終了フレーム（含む）<input id="gif-end" type="number" min="1" step="1" value="1"></label>
         </div>
         <p class="note">GIFの全フレームに同じ切り抜き・クロマキーを適用します。最大24フレーム。再生速度は50ms単位に変換されます。</p>
-        <section class="gif-live-panel" aria-label="保存前のアニメーションプレビュー">
+      </div>
+        <section id="animation-live-panel" class="gif-live-panel" aria-label="保存前のアニメーションプレビュー" hidden>
           <h4>▶ 保存前のアニメーションプレビュー</h4>
-          <canvas id="gif-live-canvas" width="256" height="256" role="img" aria-label="編集中のGIFアニメーション"></canvas>
+          <canvas id="gif-live-canvas" width="256" height="256" role="img" aria-label="編集中のアニメーション"></canvas>
           <span id="gif-live-frame" class="gif-live-frame" aria-hidden="true">フレーム：―</span>
           <div class="gif-live-controls">
             <button id="gif-live-toggle" class="secondary-button" type="button" disabled>再生</button>
@@ -137,10 +150,9 @@ app.innerHTML = `
             </label>
             <label class="gif-live-loop"><input id="gif-live-loop" type="checkbox" checked>ループ再生</label>
           </div>
-          <p id="gif-live-status" class="note" role="status" aria-live="polite">GIFを読み込むと表示されます。</p>
+          <p id="gif-live-status" class="note" role="status" aria-live="polite">アニメーションを読み込むと表示されます。</p>
           <p class="note">切り抜き・透過・フレーム範囲の変更を反映。速度はスロットに自動保存され、出力ZIPのアニメーションにも反映します。Minecraftの仕様で最短1tick（50ms）、中間の速度は丸められます。ループ切替はプレビュー専用です。</p>
         </section>
-      </div>
       <p class="note" id="crop-info"></p>
       <button type="button" id="apply-image">画像編集を適用</button>
       <p id="image-edit-status" class="note" role="status"></p>
@@ -446,13 +458,21 @@ window.addEventListener('pagehide', () => {
   if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
 });
 
-interface VideoFrameSelection { slotId: number; source: Blob; png: Blob }
+interface VideoFrameSelection { slotId: number; source: Blob; png: Blob; animation?: VideoAnimationRange }
 let videoFrameSelection: VideoFrameSelection | null = null;
 const videoEditor = get<HTMLElement>('video-editor');
 const videoPreview = get<HTMLVideoElement>('video-preview');
 const videoTimeInput = get<HTMLInputElement>('video-time');
 const videoSeekInput = get<HTMLInputElement>('video-seek');
 const videoCaptureButton = get<HTMLButtonElement>('capture-video');
+const videoAnimationButton = get<HTMLButtonElement>('capture-video-animation');
+const videoAnimationStart = get<HTMLInputElement>('video-animation-start');
+const videoAnimationEnd = get<HTMLInputElement>('video-animation-end');
+const videoAnimationCount = get<HTMLInputElement>('video-animation-count');
+function setVideoCaptureDisabled(disabled: boolean): void {
+  videoCaptureButton.disabled = disabled;
+  videoAnimationButton.disabled = disabled;
+}
 const videoStatus = get<HTMLElement>('video-status');
 let videoPreviewBlob: Blob | null = null;
 let videoPreviewUrl: string | null = null;
@@ -475,8 +495,10 @@ function renderVideoEditor(id: number): void {
   releaseVideoPreview();
   if (!source) return;
   videoPreviewBlob = source;
-  videoCaptureButton.disabled = true;
+  setVideoCaptureDisabled(true);
   videoTimeInput.value = '0';
+  videoAnimationStart.value = '0';
+  videoAnimationEnd.value = '1';
   videoSeekInput.value = '0';
   videoSeekInput.max = '1';
   videoStatus.textContent = '動画の情報を読み込み中…';
@@ -492,16 +514,19 @@ videoPreview.addEventListener('loadedmetadata', () => {
     });
     videoTimeInput.max = String(info.duration);
     videoSeekInput.max = String(info.duration);
-    videoCaptureButton.disabled = false;
+    videoAnimationStart.max = String(info.duration);
+    videoAnimationEnd.max = String(info.duration);
+    videoAnimationEnd.value = String(Math.min(1, info.duration));
+    setVideoCaptureDisabled(false);
     videoStatus.textContent = `動画：${info.width}×${info.height}px・${info.duration.toFixed(2)}秒。再生位置を指定してください。`;
   } catch (error) {
-    videoCaptureButton.disabled = true;
+    setVideoCaptureDisabled(true);
     videoStatus.textContent = error instanceof Error ? error.message : '動画を開けません。';
   }
 });
 videoPreview.addEventListener('error', () => {
   if (videoPreviewBlob) {
-    videoCaptureButton.disabled = true;
+    setVideoCaptureDisabled(true);
     videoStatus.textContent = 'このブラウザでは動画を再生できません。形式や映像コーデックを確認してください。';
   }
 });
@@ -525,27 +550,46 @@ function seekVideoFromInput(value: string): void {
 }
 videoSeekInput.addEventListener('input', () => seekVideoFromInput(videoSeekInput.value));
 videoTimeInput.addEventListener('change', () => seekVideoFromInput(videoTimeInput.value));
-videoCaptureButton.addEventListener('click', async () => {
+async function selectVideoFrames(animation?: VideoAnimationRange): Promise<void> {
   const id = currentSlot();
   const visual = store.get(id).visual;
   if (visual?.sourceFormat !== 'video' || videoCaptureButton.disabled || videoPreviewBlob !== visual.source) return;
   const version = videoVersion;
-  const t = Number(videoTimeInput.value);
-  videoCaptureButton.disabled = true;
+  const t = animation?.start ?? Number(videoTimeInput.value);
+  setVideoCaptureDisabled(true);
   videoStatus.textContent = '指定フレームをPNGに変換中…';
   try {
     const png = await captureVideoFrame(videoPreview, t);
     if (version !== videoVersion || store.get(id).visual !== visual || currentSlot() !== id) return;
-    videoFrameSelection = { slotId: id, source: visual.source, png };
+    videoFrameSelection = { slotId: id, source: visual.source, png, animation };
+    clearGifPreview();
     render();
-    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。下の画像編集で切り抜き・透過・エフェクトを適用できます。`;
-    imageEditorPanel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    videoStatus.textContent = animation
+      ? `${animation.start.toFixed(2)}〜${animation.end.toFixed(2)}秒を選択しました。下の画像編集で全フレームに加工を適用できます。`
+      : `${t.toFixed(2)}秒のフレームを取得しました。下の画像編集で切り抜き・透過・エフェクトを適用できます。`;
+    if (!editorPanel.hidden && activeEditorTab === 'image') imageEditorPanel.scrollIntoView({ block: 'start', behavior: 'smooth' });
   } catch (error) {
     if (version === videoVersion) videoStatus.textContent = '取得に失敗：' +
       (error instanceof Error ? error.message : '動画フレームを確認してください。');
   } finally {
-    if (version === videoVersion) videoCaptureButton.disabled = false;
+    if (version === videoVersion) setVideoCaptureDisabled(false);
   }
+}
+videoCaptureButton.addEventListener('click', () => void selectVideoFrames());
+videoAnimationButton.addEventListener('click', () => {
+  try {
+    const animation = { start: Number(videoAnimationStart.value), end: Number(videoAnimationEnd.value), count: Number(videoAnimationCount.value) };
+    videoAnimationPlan(animation, videoPreview.duration);
+    void selectVideoFrames(animation);
+  } catch (error) {
+    videoStatus.textContent = error instanceof Error ? error.message : '範囲を確認してください。';
+  }
+});
+get<HTMLButtonElement>('video-start-here').addEventListener('click', () => {
+  if (videoPreviewBlob && Number.isFinite(videoPreview.duration)) videoAnimationStart.value = String(videoPreview.currentTime);
+});
+get<HTMLButtonElement>('video-end-here').addEventListener('click', () => {
+  if (videoPreviewBlob && Number.isFinite(videoPreview.duration)) videoAnimationEnd.value = String(videoPreview.currentTime);
 });
 window.addEventListener('pagehide', releaseVideoPreview);
 
@@ -633,22 +677,26 @@ function refreshEffectControls(): void {
 }
 
 function scheduleGifPreview(): void {
-  if (get<HTMLElement>('editor-panel').hidden || !activeBitmap || gifTotalFrames < 1) return;
+  if (get<HTMLElement>('editor-panel').hidden || activeEditorTab !== 'image' || !activeBitmap) return;
   const id = currentSlot();
   const visual = store.get(id).visual;
-  if (visual?.sourceFormat !== 'gif' || visual.source !== gifSource || bitmapSource !== gifSource) return;
+  const videoRange = visual?.sourceFormat === 'video' && videoFrameSelection?.slotId === id &&
+    videoFrameSelection.source === visual.source && videoFrameSelection.png === bitmapSource
+      ? videoFrameSelection.animation : undefined;
+  const isGif = visual?.sourceFormat === 'gif' && visual.source === gifSource && bitmapSource === gifSource && gifTotalFrames > 0;
+  if (!visual || (!isGif && !videoRange)) return;
   const range = {
     first: Number(get<HTMLInputElement>('gif-start').value),
     last: Number(get<HTMLInputElement>('gif-end').value),
   };
-  if (!validFrameRange(range, gifTotalFrames)) {
+  if (isGif && !validFrameRange(range, gifTotalFrames)) {
     clearGifPreview();
     gifLiveStatus.textContent = `フレーム範囲は1〜${gifTotalFrames}の間で開始 ≤ 終了にしてください。`;
     return;
   }
   const settings = imageSettings();
   const effects = visualEffectSettings();
-  const key = JSON.stringify({ range, settings, effects });
+  const key = JSON.stringify({ id, range: videoRange ?? range, settings, effects });
   if (gifPreviewKey === key) return;
   clearGifPreview();
   gifPreviewKey = key;
@@ -661,7 +709,9 @@ function scheduleGifPreview(): void {
     gifPreviewTimer = null;
     try {
       // Exact same compositing, cropping, keying and Minecraft tick timing as GIF export.
-      const result = await processGif(source, settings, range, undefined, controller.signal, effects);
+      const result = videoRange
+        ? await processVideoAnimation(source, settings, videoRange, undefined, controller.signal, effects)
+        : await processGif(source, settings, range, undefined, controller.signal, effects);
       if (controller.signal.aborted || version !== gifPreviewVersion ||
           currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
           store.get(id).visual?.source !== source) return;
@@ -684,7 +734,7 @@ function scheduleGifPreview(): void {
 gifLiveToggle.addEventListener('click', () => gifPlayer.toggle());
 gifLiveSpeed.addEventListener('change', () => {
   const visual = store.get(currentSlot()).visual;
-  if (!visual || visual.sourceFormat !== 'gif') return;
+  if (!visual || (visual.sourceFormat !== 'gif' && visual.sourceFormat !== 'video')) return;
   const speed = normalizeGifSpeed(Number(gifLiveSpeed.value));
   gifPlayer.setSpeed(speed);
   store.update(currentSlot(), { visual: { ...visual, animationSpeed: speed } });
@@ -771,15 +821,18 @@ async function renderImageEditor(id: number): Promise<void> {
     clearGifPreview();
     imageEditorPanel.hidden = true;
     get<HTMLElement>('gif-range').hidden = true;
+    get<HTMLElement>('animation-live-panel').hidden = true;
     clearTimeout(previewTimer); ++previewVersion;
     activeBitmap?.close(); activeBitmap = null; bitmapSource = null;
     return;
   }
   imageEditorPanel.hidden = false;
   get<HTMLElement>('gif-range').hidden = slot.visual.sourceFormat !== 'gif';
+  get<HTMLElement>('animation-live-panel').hidden = slot.visual.sourceFormat !== 'gif' &&
+    !(videoFrameSelection?.slotId === id && videoFrameSelection.source === slot.visual.source && videoFrameSelection.animation);
   if (bitmapSlot === id && bitmapSource === editSource && activeBitmap) { updateCropInfo(); return; }
   clearGifPreview();
-  gifLiveStatus.textContent = 'GIFのフレームを確認中…';
+  gifLiveStatus.textContent = 'フレームを確認中…';
   activeBitmap?.close(); activeBitmap = null;
   imageEditStatus.textContent = '元画像を読み込み中…';
   try {
@@ -873,13 +926,29 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
   if (!activeBitmap || bitmapSlot !== currentSlot()) return;
   const id = currentSlot(), source = bitmapSource, bitmap = activeBitmap;
   const button = get<HTMLButtonElement>('apply-image');
+  if (button.disabled) return;
+  const settings = imageSettings();
+  const version = editToken;
   button.disabled = true; imageEditStatus.textContent = '画像を処理中…';
   try {
     const visual = store.get(id).visual!;
-    const unchanged = () => id === currentSlot() && store.get(id).visual === visual &&
+    const unchanged = () => id === currentSlot() && !editorPanel.hidden && activeEditorTab === 'image' &&
+      version === editToken && store.get(id).visual === visual &&
       (visual.sourceFormat === 'video' ? videoFrameSelection?.png === source : visual.source === source);
-    if (visual.sourceFormat === 'gif') {
-      const result = await processGif(visual.source, imageSettings(), {
+    const videoRange = visual.sourceFormat === 'video' && videoFrameSelection?.slotId === id &&
+      videoFrameSelection.source === visual.source ? videoFrameSelection.animation : undefined;
+    if (videoRange) {
+      const result = await processVideoAnimation(visual.source, settings, videoRange, fraction => {
+        if (unchanged()) imageEditStatus.textContent = '動画アニメーション変換中…' + Math.round(fraction * 100) + '%';
+      }, undefined, normalizeVisualEffects(visual.effects, Boolean(visual.gaming)));
+      if (!unchanged()) return;
+      store.update(id, { visual: { ...visual, processed: {
+        png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+      } } });
+      render(); queueSave();
+      imageEditStatus.textContent = `動画から${result.frameCount}フレームのアニメーション素材を登録しました。`;
+    } else if (visual.sourceFormat === 'gif') {
+      const result = await processGif(visual.source, settings, {
         first: Number(get<HTMLInputElement>('gif-start').value),
         last: Number(get<HTMLInputElement>('gif-end').value),
       }, fraction => {
@@ -895,7 +964,7 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
       render(); queueSave();
       imageEditStatus.textContent = `GIF ${result.frameCount}フレームのアニメーションPNGを登録しました。`;
     } else {
-      const png = await processPng(bitmap, imageSettings());
+      const png = await processPng(bitmap, settings);
       if (!unchanged()) return;
       const effects = normalizeVisualEffects(visual.effects, Boolean(visual.gaming));
       if (hasAnimatedVisualEffects(effects)) {
@@ -1009,9 +1078,16 @@ function openEditor(id: number): void {
   editorPanel.scrollIntoView({ block: 'start' });
 }
 function showInventory(): void {
-  activateEditorTab('image');
   stopAudioPreview();
   videoPreview.pause();
+  ++editToken;
+  clearGifPreview();
+  clearTimeout(previewTimer);
+  ++previewVersion;
+  activeBitmap?.close();
+  activeBitmap = null;
+  bitmapSource = null;
+  bitmapSlot = 0;
   editorPanel.hidden = true;
   inventoryRoot.hidden = false;
   if (inventoryHelp) inventoryHelp.hidden = false;
@@ -1054,7 +1130,7 @@ function render(): void {
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
   slotState.dataset.state = state;
   const visualNotes: string[] = [];
-  if (slot.visual?.sourceFormat === 'video') visualNotes.push(slot.visual.processed ? '静止画処理済み' : 'フレーム編集待ち');
+  if (slot.visual?.sourceFormat === 'video') visualNotes.push(slot.visual.processed?.animationMcmeta ? 'アニメーション処理済み' : slot.visual.processed ? '静止画処理済み' : 'フレーム編集待ち');
   if (slot.visual) {
     const effects = normalizeVisualEffects(slot.visual.effects, Boolean(slot.visual.gaming));
     if (hasAnimatedVisualEffects(effects)) {

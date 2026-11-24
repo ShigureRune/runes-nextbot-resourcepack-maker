@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertVideoInfo, frameTime, isVideoFilename, MAX_VIDEO_BYTES } from '../src/videoEditor.ts';
+import { assertVideoInfo, frameTime, isVideoFilename, MAX_VIDEO_BYTES, videoAnimationPlan } from '../src/videoEditor.ts';
 
 test('recognizes supported filenames without implying codec support', () => {
   for (const name of ['a.mp4','b.M4V','c.webm','d.mov']) assert.equal(isVideoFilename(name), true);
@@ -39,4 +39,21 @@ test('video slots remain partial until an actual PNG is prepared', async () => {
     processed: { ogg: new Blob(['ogg']) },
   } });
   assert.equal(slotStatus(store.get(1)), 'complete');
+});
+
+test('video animation samples the selected interval and retains rounded tick duration', () => {
+  const plan = videoAnimationPlan({start: 1, end: 3.05, count: 24}, 4);
+  assert.equal(plan.length, 24);
+  assert.equal(plan[0].time, 1);
+  assert.ok(plan.at(-1)!.time < 3.05);
+  assert.equal(plan.reduce((sum, frame) => sum + frame.ticks, 0), 41);
+  assert.ok(plan.every(frame => Number.isInteger(frame.ticks) && frame.ticks >= 1));
+  const short = videoAnimationPlan({start: 0, end: 0.2, count: 24}, 1);
+  assert.equal(short.length, 4);
+  assert.deepEqual(short.map(f => f.ticks), [1, 1, 1, 1]);
+});
+test('video animation rejects invalid ranges and excessive frame counts', () => {
+  for (const range of [{start:-1,end:1,count:4},{start:1,end:0,count:4},{start:0,end:0.05,count:4},{start:0,end:3,count:4},{start:0,end:1,count:25},{start:0,end:1,count:1},{start:NaN,end:1,count:4}]) {
+    assert.throws(() => videoAnimationPlan(range, 2), RangeError);
+  }
 });
