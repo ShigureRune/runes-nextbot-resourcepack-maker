@@ -12,37 +12,32 @@ const gif = {sourceName:'a.gif',sourceFormat:'gif' as const,source:png,processed
 const video = {sourceName:'a.mp4',sourceFormat:'video' as const,source:png,processed:null};
 const audio = {sourceName:'b.ogg',sourceFormat:'ogg' as const,source:ogg,processed:{ogg}};
 
-test('empty slot gives clear upload guidance on every edit tab', () => {
+test('empty slot guides uploads directly to image and audio tabs', () => {
   const g=editorTabGuide(empty,false);
-  assert.equal(g.imageEmpty,true);
-  assert.equal(g.videoEmpty,true);
-  assert.equal(g.audioEmpty,true);
   assert.equal(g.imageState,'empty');
-  assert.match(g.nextAction,/基本設定/);
+  assert.equal(g.audioState,'empty');
+  assert.match(g.nextAction,/画像タブ/);
+  assert.doesNotMatch(g.nextAction,/基本設定|動画タブ/);
 });
 
-test('GIF and video previews guide the user to the next required editing step', () => {
+test('GIF and video stay inside the image workflow', () => {
   const pending=editorTabGuide({...empty,visual:gif},false);
-  assert.equal(pending.imageEmpty,false);
-  assert.match(pending.nextAction,/画像・GIF/);
+  assert.equal(pending.imageState,'pending');
+  assert.match(pending.nextAction,/画像タブ/);
   const noFrame=editorTabGuide({...empty,visual:video},false);
-  assert.equal(noFrame.imageEmpty,true);
-  assert.equal(noFrame.videoEmpty,false);
   assert.equal(noFrame.needsVideoCapture,true);
-  assert.match(noFrame.nextAction,/動画タブ/);
+  assert.match(noFrame.nextAction,/画像タブの動画プレビュー/);
+  assert.doesNotMatch(noFrame.nextAction,/動画タブ/);
   const afterFrame=editorTabGuide({...empty,visual:video},true);
-  assert.equal(afterFrame.imageEmpty,false);
   assert.equal(afterFrame.needsVideoCapture,false);
-  assert.match(afterFrame.nextAction,/画像・GIF/);
+  assert.match(afterFrame.nextAction,/画像タブ/);
 });
 
-test('processed media and audio update status and completion guidance', () => {
+test('processed media and audio update completion guidance', () => {
   const imageReady=editorTabGuide({...empty,visual},false);
   assert.equal(imageReady.imageState,'ready');
-  assert.match(imageReady.nextAction,/音声/);
+  assert.match(imageReady.nextAction,/音声タブ/);
   const done=editorTabGuide({...empty,visual,audio},false);
-  assert.equal(done.imageEmpty,false);
-  assert.equal(done.audioEmpty,false);
   assert.equal(done.audioState,'ready');
   assert.match(done.nextAction,/素材が揃った/);
   const pendingAudio=editorTabGuide({...empty,visual,audio:{...audio,processed:null}},false);
@@ -50,21 +45,29 @@ test('processed media and audio update status and completion guidance', () => {
   assert.match(pendingAudio.nextAction,/OGG/);
 });
 
-test('each accessible tab wraps one original editor and preserves existing IDs', () => {
+test('editor exposes only image and audio tabs while name remains separate', () => {
   const source=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
   const editor=source.slice(source.indexOf('<section class="panel editor-workspace"'),source.indexOf('<section class="panel"><h2>99枠の集計'));
-  for(const [key,id] of [['basic','slot'],['image','image-editor'],['video','video-editor'],['audio','audio-editor']]){
+  for(const key of ['image','audio']){
     assert.ok(editor.includes('id="editor-btn-'+key+'" aria-controls="editor-tab-'+key+'"'));
     assert.ok(editor.includes('id="editor-tab-'+key+'"'));
+  }
+  assert.ok(!editor.includes('id="editor-btn-basic"'));
+  assert.ok(!editor.includes('id="editor-btn-video"'));
+  assert.ok(editor.includes('class="name-settings"'));
+  for(const id of ['slot','bot-name','image','sound','source-canvas','gif-live-canvas','audio-waveform','video-preview','clear-slot','save-state','feedback']){
     assert.equal(editor.split('id="'+id+'"').length-1,1,'missing or duplicated '+id);
   }
-  for(const id of ['back-list','prev-slot','next-slot','bot-name','image','sound','source-canvas','gif-live-canvas','audio-waveform','video-preview','clear-slot','save-state','feedback']){
-    assert.equal(editor.split('id="'+id+'"').length-1,1,'missing or duplicated '+id);
-  }
+  const imageTab=editor.slice(editor.indexOf('id="editor-tab-image"'),editor.indexOf('id="editor-tab-audio"'));
+  assert.ok(imageTab.includes('id="image"'));
+  assert.ok(imageTab.includes('id="video-editor"'));
+  assert.ok(imageTab.includes('id="image-editor"'));
+  const audioTab=editor.slice(editor.indexOf('id="editor-tab-audio"'));
+  assert.ok(audioTab.includes('id="sound"'));
+  assert.ok(audioTab.includes('id="audio-editor"'));
+  assert.ok(source.includes("const editorTabs = ['image', 'audio'] as const"));
   assert.ok(source.includes("activateEditorTab('image', true)"));
   assert.ok(source.includes("activateEditorTab('audio', true)"));
-  assert.ok(source.includes('role="tabpanel"'));
-  assert.ok(source.includes('role="tablist"'));
 });
 
 test('fixed iPhone scrollbar clipping is unchanged by editor UI overhaul',()=>{

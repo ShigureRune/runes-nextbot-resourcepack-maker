@@ -130,7 +130,10 @@ box-shadow:3px 3px 0 #333;font-weight:850}
 .editor-feedback-area #save-state{margin:0;padding:6px 9px;background:#b2b2b2}
 .editor-feedback-area #feedback{margin:5px 0 0;padding:0 8px;font-weight:700;min-height:0}
 .editor-feedback-area #feedback:empty{display:none}
-.editor-tab-nav{position:sticky;top:6px;z-index:8;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:0 0 10px;padding:6px;background:#a0a0a0;border:3px solid;border-color:#eee #555 #555 #eee;box-shadow:0 3px 0 #555;scroll-margin-top:8px}
+.name-settings{margin:0 0 12px;padding:12px;background:#c5c5c5;border:3px solid;border-color:#777 #eee #eee #777}
+.name-settings label{max-width:520px}
+.name-settings input{margin-bottom:0}
+.editor-tab-nav{position:sticky;top:6px;z-index:8;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:0 0 10px;padding:6px;background:#a0a0a0;border:3px solid;border-color:#eee #555 #555 #eee;box-shadow:0 3px 0 #555;scroll-margin-top:8px}
 .editor-tab-button{min-width:0;min-height:48px;padding:8px 4px;background:linear-gradient(#e1e1e1 0 50%,#c1c1c1 50%);border:3px solid;border-color:#fff #777 #777 #fff;box-shadow:none;text-shadow:none;color:#303030;font-size:.86rem;line-height:1.3;white-space:normal}
 .editor-tab-button[aria-selected="true"]{background:linear-gradient(#69a14d 0 50%,#467333 50%);color:#fff;border-color:#c1eb9c #2c5126 #2c5126 #c1eb9c;text-shadow:1px 1px 0 #35592f}
 .editor-tab-button:hover:not(:disabled){filter:brightness(1.08)}
@@ -183,3 +186,10 @@ box-shadow:3px 3px 0 #333;font-weight:850}
 #gaming-direction-label,#enchant-strength-label{background:#d2cbdc;padding:8px;border-left:4px solid #76539b}
 .effect-toggle{background:#d2cbdc}
 @media(max-width:640px){.visual-effects-box{padding:9px}}
+
+.media-upload-block{margin-bottom:12px!important}
+.media-upload-block label{margin-top:10px}
+#editor-tab-image #video-editor{margin:12px 0}
+#editor-tab-image #image-editor{margin:12px 0}
+#editor-tab-audio #audio-editor{margin:12px 0}
+.editor-clear-slot{margin-top:12px}

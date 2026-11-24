@@ -46,45 +46,39 @@ app.innerHTML = `
         </div>
         <p id="image-name" class="note"></p>
         <p id="sound-name" class="note"></p>
-        <p id="editor-next-action" class="editor-next-action">基本設定から素材を登録してください。</p>
+        <p id="editor-next-action" class="editor-next-action">画像または音声を登録してください。</p>
       </div>
     </div>
     <div class="editor-feedback-area">
       <p id="save-state" class="note" role="status" aria-live="polite">保存データを読み込み中…</p>
       <p id="feedback" class="status" role="status" aria-live="polite"></p>
     </div>
+    <section class="name-settings" aria-label="Nextbotの名前">
+      <select id="slot" hidden aria-hidden="true"></select>
+      <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
+    </section>
     <nav id="editor-tab-nav" class="editor-tab-nav" role="tablist" aria-label="編集する項目">
-      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-basic" aria-controls="editor-tab-basic" aria-selected="true" tabindex="0" data-editor-tab="basic">⚙ 基本設定</button>
-      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-image" aria-controls="editor-tab-image" aria-selected="false" tabindex="-1" data-editor-tab="image">▧ 画像・GIF</button>
-      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-video" aria-controls="editor-tab-video" aria-selected="false" tabindex="-1" data-editor-tab="video">▶ 動画</button>
+      <button type="button" role="tab" class="editor-tab-button" id="editor-btn-image" aria-controls="editor-tab-image" aria-selected="true" tabindex="0" data-editor-tab="image">▧ 画像・動画</button>
       <button type="button" role="tab" class="editor-tab-button" id="editor-btn-audio" aria-controls="editor-tab-audio" aria-selected="false" tabindex="-1" data-editor-tab="audio">♫ 音声</button>
     </nav>
-    <section id="editor-tab-basic" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-basic" tabindex="0">
-    <section class="setup-block" aria-label="基本設定と素材登録"><h3>01 · 基本設定と素材登録</h3>
-    <p class="note">素材を選んで登録。GIF・MP3・動画は編集・変換後に完成扱いになります。</p>
-    <div class="fields">
-      <label>登録スロット（1〜99）<select id="slot"></select></label>
-      <label>Nextbotの名前<input id="bot-name" maxlength="40" placeholder="例：My Nextbot"></label>
-      <label>顔画像・動画（PNG / GIF / MP4 / WebM / MOV）<input id="image" type="file" accept=".png,.gif,.mp4,.m4v,.webm,.mov,image/png,image/gif,video/mp4,video/webm,video/quicktime"></label>
-      <label>音声（MP3 / OGG Vorbis）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
-    </div>
+    <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0">
+      <section class="setup-block media-upload-block" aria-label="画像・GIF・動画の登録">
+        <h3>画像・GIF・動画</h3>
+        <p class="note">PNG / GIF / MP4 / WebM / MOVをここから登録します。動画はこの画面のまま好きなフレームを切り出して画像編集へ進めます。</p>
+        <label>顔画像・動画<input id="image" type="file" accept=".png,.gif,.mp4,.m4v,.webm,.mov,image/png,image/gif,video/mp4,video/webm,video/quicktime"></label>
+      </section>
+    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
+      <h3>動画から静止画</h3>
+      <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
+      <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
+      <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
+      <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
+      <button id="capture-video" type="button">このフレームを画像編集へ</button>
+      <p id="video-status" class="note" role="status" aria-live="polite"></p>
+      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
     </section>
-
-      <details class="editor-danger">
-        <summary>素材の削除・スロットを初期化</summary>
-        <p class="note">削除後は自動保存されます。スロット全体の削除には確認画面が出ます。</p>
-        <h3 class="danger-heading">素材の削除</h3><div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
-      </details>
-    </section>
-    <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0" hidden>
-      <div class="editor-empty" id="editor-image-empty" hidden>
-        <strong>画像・GIFの編集</strong>
-        <p id="editor-image-empty-message">画像を登録すると切り抜き・透過・GIFプレビューを編集できます。</p>
-        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で画像を登録</button>
-        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="video" id="editor-video-jump" hidden>動画からフレームを取り込む</button>
-      </div>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
-      <h3>02 · 画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
+      <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
       <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
@@ -148,34 +142,20 @@ app.innerHTML = `
       <button type="button" id="apply-image">画像編集を適用</button>
       <p id="image-edit-status" class="note" role="status"></p>
     </section>
-
-    </section>
-    <section id="editor-tab-video" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-video" tabindex="0" hidden>
-      <div class="editor-empty" id="editor-video-empty" hidden>
-        <strong>動画から静止画を取り出す</strong>
-        <p>基本設定でMP4 / WebM / MOVを読み込むと、ここでフレームを選択できます。</p>
-        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で動画を登録</button>
-      </div>
-    <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
-      <h3>03 · 動画から静止画</h3>
-      <p class="note">動画を再生して位置を選び、フレームを取り込んだ後、下の画像編集で切り抜き・背景透過を適用できます。元の動画は保持します。</p>
-      <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
-      <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
-      <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
-      <button id="capture-video" type="button">このフレームを画像編集へ</button>
-      <p id="video-status" class="note" role="status" aria-live="polite"></p>
-      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
-    </section>
-
+      <details class="editor-danger">
+        <summary>画像素材を削除</summary>
+        <p class="note">元画像・GIF・動画と加工結果をこのスロットから削除します。</p>
+        <div class="editor-actions"><button id="remove-image" type="button" class="secondary-button">画像だけ削除</button></div>
+      </details>
     </section>
     <section id="editor-tab-audio" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-audio" tabindex="0" hidden>
-      <div class="editor-empty" id="editor-audio-empty" hidden>
-        <strong>音声の編集</strong>
-        <p>基本設定でMP3 / OGGを登録すると、ここで波形を見ながら試聴・切り抜きできます。</p>
-        <button class="secondary-button editor-tab-jump" type="button" data-editor-jump="basic">基本設定で音声を登録</button>
-      </div>
+      <section class="setup-block media-upload-block" aria-label="音声の登録">
+        <h3>音声</h3>
+        <p class="note">MP3 / OGG Vorbisをここから登録します。MP3は下の編集欄でOGGへ変換できます。</p>
+        <label>音声ファイル<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
+      </section>
     <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
-      <h3>04 · 音声編集（MP3 / OGG Vorbis）</h3>
+      <h3>音声編集（MP3 / OGG Vorbis）</h3>
       <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
       <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
       <canvas id="audio-waveform" width="640" height="100" class="audio-waveform" aria-label="音声波形と切り抜き範囲"></canvas>
@@ -193,7 +173,17 @@ app.innerHTML = `
       <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
     </section>
 
+      <details class="editor-danger">
+        <summary>音声素材を削除</summary>
+        <p class="note">元音声と加工結果をこのスロットから削除します。</p>
+        <div class="editor-actions"><button id="remove-sound" type="button" class="secondary-button">音声だけ削除</button></div>
+      </details>
     </section>
+    <details class="editor-danger editor-clear-slot">
+      <summary>このスロットを初期化</summary>
+      <p class="note">名前・画像・音声をすべて削除します。</p>
+      <div class="editor-actions"><button id="clear-slot" type="button" class="secondary-button">このスロットを空にする</button></div>
+    </details>
   </section>
   <section class="panel"><h2>99枠の集計</h2>
     <p id="summary" aria-live="polite"></p>
@@ -519,8 +509,9 @@ videoCaptureButton.addEventListener('click', async () => {
     const png = await captureVideoFrame(videoPreview, t);
     if (version !== videoVersion || store.get(id).visual !== visual || currentSlot() !== id) return;
     videoFrameSelection = { slotId: id, source: visual.source, png };
-    activateEditorTab('image', true);
-    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。「画像・GIF」タブで切り抜き・透過を適用して保存してください。`;
+    render();
+    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。下の画像編集で切り抜き・透過・エフェクトを適用できます。`;
+    imageEditorPanel.scrollIntoView({ block: 'start', behavior: 'smooth' });
   } catch (error) {
     if (version === videoVersion) videoStatus.textContent = '取得に失敗：' +
       (error instanceof Error ? error.message : '動画フレームを確認してください。');
@@ -911,25 +902,19 @@ const inventoryHelp = document.querySelector<HTMLElement>('.inventory-help');
 const editorHeading = get<HTMLElement>('editor-heading');
 const prevButton = get<HTMLButtonElement>('prev-slot');
 const nextButton = get<HTMLButtonElement>('next-slot');
-const editorTabs = ['basic', 'image', 'video', 'audio'] as const;
+const editorTabs = ['image', 'audio'] as const;
 const editorTabNav = get<HTMLElement>('editor-tab-nav');
 const editorTabButtons = [...editorTabNav.querySelectorAll<HTMLButtonElement>('[data-editor-tab]')];
-let activeEditorTab: EditorTab = 'basic';
+let activeEditorTab: EditorTab = 'image';
 
 function refreshEditorGuide(): void {
   const slot = store.get(currentSlot());
   const hasFrame = videoFrameSelection?.slotId === slot.id &&
     videoFrameSelection.source === slot.visual?.source;
   const guide = editorTabGuide(slot, Boolean(hasFrame));
-  get<HTMLElement>('editor-image-empty').hidden = !guide.imageEmpty;
-  get<HTMLElement>('editor-video-empty').hidden = !guide.videoEmpty;
-  get<HTMLElement>('editor-audio-empty').hidden = !guide.audioEmpty;
-  get<HTMLElement>('editor-image-empty-message').textContent = guide.imageMessage;
-  get<HTMLElement>('editor-video-jump').hidden = !guide.needsVideoCapture;
   get<HTMLElement>('editor-next-action').textContent = guide.nextAction;
   get<HTMLElement>('editor-shortname').textContent = slot.name.trim() || '名前未設定';
   get<HTMLElement>('editor-btn-image').dataset.state = guide.imageState;
-  get<HTMLElement>('editor-btn-video').dataset.state = guide.videoState;
   get<HTMLElement>('editor-btn-audio').dataset.state = guide.audioState;
 }
 
@@ -945,7 +930,7 @@ function activateEditorTab(tab: EditorTab, scrollToTabs = false): void {
     bitmapSlot = 0;
   }
   if (tab !== 'audio') stopAudioPreview();
-  if (tab !== 'video') videoPreview.pause();
+  if (tab !== 'image') videoPreview.pause();
   activeEditorTab = tab;
   for (const key of editorTabs) {
     const selected = key === tab;
@@ -956,8 +941,10 @@ function activateEditorTab(tab: EditorTab, scrollToTabs = false): void {
   }
   refreshEditorGuide();
   const id = currentSlot();
-  if (tab === 'image') void renderImageEditor(id);
-  if (tab === 'video') renderVideoEditor(id);
+  if (tab === 'image') {
+    renderVideoEditor(id);
+    void renderImageEditor(id);
+  }
   if (tab === 'audio') renderAudioEditor(id);
   if (scrollToTabs) editorTabNav.scrollIntoView({ block: 'start' });
 }
@@ -976,9 +963,6 @@ for (const button of editorTabButtons) {
     get<HTMLButtonElement>('editor-btn-' + nextTab).focus();
   });
 }
-for (const button of document.querySelectorAll<HTMLButtonElement>('.editor-tab-jump')) {
-  button.addEventListener('click', () => activateEditorTab(button.dataset.editorJump as EditorTab, true));
-}
 function openEditor(id: number): void {
   const fromInventory = editorPanel.hidden;
   slotSelect.value = String(id);
@@ -986,12 +970,12 @@ function openEditor(id: number): void {
   inventoryRoot.hidden = true;
   if (inventoryHelp) inventoryHelp.hidden = true;
   feedback.textContent = '';
-  if (fromInventory) activateEditorTab('basic');
+  if (fromInventory) activateEditorTab('image');
   render();
   editorPanel.scrollIntoView({ block: 'start' });
 }
 function showInventory(): void {
-  activateEditorTab('basic');
+  activateEditorTab('image');
   stopAudioPreview();
   videoPreview.pause();
   editorPanel.hidden = true;
@@ -1054,9 +1038,11 @@ function render(): void {
     : summary.partial > 0
       ? `設定途中の${summary.partial}枠を完成させるか削除すると書き出し条件を満たせます。`
       : '少なくとも1枠に画像と音声を揃えてください。';
-  if (!editorPanel.hidden && activeEditorTab === 'image') void renderImageEditor(slot.id);
+  if (!editorPanel.hidden && activeEditorTab === 'image') {
+    renderVideoEditor(slot.id);
+    void renderImageEditor(slot.id);
+  }
   if (!editorPanel.hidden && activeEditorTab === 'audio') renderAudioEditor(slot.id);
-  if (!editorPanel.hidden && activeEditorTab === 'video') renderVideoEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   if (slot.visual?.processed?.png) {
@@ -1103,6 +1089,9 @@ nextButton.addEventListener('click', () => { if (currentSlot() < SLOT_COUNT) ope
 
 slotSelect.addEventListener('change', () => {
   feedback.textContent = '';
+  videoFrameSelection = null;
+  ++videoVersion;
+  releaseVideoPreview();
   render();
 });
 
@@ -1164,7 +1153,7 @@ imageInput.addEventListener('change', async () => {
   }
   if (currentSlot() === id) {
     render();
-    activateEditorTab(store.get(id).visual?.sourceFormat === 'video' ? 'video' : 'image', true);
+    activateEditorTab('image', true);
   } else inventory.render(currentSlot());
   queueSave();
 });
