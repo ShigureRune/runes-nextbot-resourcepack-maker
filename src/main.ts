@@ -125,11 +125,11 @@ app.innerHTML = `
             </select>
           </label>
           <label class="effect-toggle">✨ エンチャント風グリント（独自再現）<input id="enchant-enabled" type="checkbox"></label>
-          <label id="enchant-strength-label" hidden>グリントの強さ <span id="enchant-strength-value">55%</span>
-            <input id="enchant-strength" type="range" min="0" max="100" step="5" value="55">
+          <label id="enchant-strength-label" hidden>グリントの強さ <span id="enchant-strength-value">75%</span>
+            <input id="enchant-strength" type="range" min="0" max="100" step="5" value="75">
           </label>
         </div>
-        <p class="effect-note">ゲーミングとエンチャント風は重ね掛けOK。エンチャント風はゲーム本体の画像・コードを使わず、斜めに流れるグリント模様とテクスチャ変換風の動きを独自再現します。PNGや動画フレームでも、動くエフェクトを選ぶと自動で12フレームのMinecraftアニメーション素材になります。</p>
+        <p class="effect-note">ゲーミングとエンチャント風は重ね掛けOK。エンチャント風はゲーム本体の画像・コードを使わず、太い紫の光と明るい筋が交差して流れる強化グリントを独自再現します。白い画像にも紫の光が見えるようにしています。PNGや動画フレームでも、動くエフェクトを選ぶと自動で12フレームのMinecraftアニメーション素材になります。</p>
       </section>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
