@@ -13,14 +13,20 @@ export function effectPreviewTiming(rawSettings: VisualEffectSettings): { frameC
     : { frameCount: GAMING_FRAME_COUNT, delayMs: GAMING_FRAME_TICKS * 50 };
 }
 
-/** Live preview without repeatedly encoding large PNG sprite strips (mobile-friendly). */
+/** Browser-synchronized 60fps preview; exported Minecraft textures still use game ticks. */
 export class VisualEffectPreviewPlayer {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D;
   private original: ImageData | null = null;
+  private frame: ImageData | null = null;
   private settings: VisualEffectSettings | null = null;
   private frameIndex = 0;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private playing = false;
+  private request: number | ReturnType<typeof setTimeout> | null = null;
+  private usingRaf = false;
+  private startMs = 0;
+  private elapsedMs = 0;
+  private lastPaintMs = -Infinity;
   private readonly onFrame: (index: number, count: number) => void;
 
   constructor(canvas: HTMLCanvasElement, onFrame: (index: number, count: number) => void = () => {}) {
@@ -34,13 +40,16 @@ export class VisualEffectPreviewPlayer {
   get isAnimated(): boolean {
     return this.settings !== null && hasAnimatedVisualEffects(this.settings);
   }
-  get isPlaying(): boolean { return this.timer !== null; }
+  get isPlaying(): boolean { return this.playing; }
 
   clear(): void {
     this.pause();
     this.original = null;
+    this.frame = null;
     this.settings = null;
     this.frameIndex = 0;
+    this.elapsedMs = 0;
+    this.lastPaintMs = -Infinity;
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.onFrame(0, 0);
   }
@@ -51,44 +60,66 @@ export class VisualEffectPreviewPlayer {
     this.canvas.height = image.height;
     this.context.drawImage(image, 0, 0);
     this.original = this.context.getImageData(0, 0, image.width, image.height);
+    this.frame = this.context.createImageData(image.width, image.height);
     this.settings = normalizeVisualEffects(rawSettings);
-    this.draw();
+    this.draw(0);
     this.play();
   }
 
   play(): void {
-    if (this.timer !== null || !this.isAnimated || !this.original) return;
+    if (this.playing || !this.isAnimated || !this.original) return;
+    this.playing = true;
+    this.startMs = this.clock() - this.elapsedMs;
     this.schedule();
   }
 
   pause(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
+    if (!this.playing) return;
+    this.elapsedMs = Math.max(0, this.clock() - this.startMs);
+    this.playing = false;
+    if (this.request !== null) {
+      if (this.usingRaf) cancelAnimationFrame(this.request as number);
+      else clearTimeout(this.request);
+    }
+    this.request = null;
+  }
+
+  private clock(): number {
+    return typeof performance !== 'undefined' ? performance.now() : Date.now();
   }
 
   private schedule(): void {
-    if (!this.settings || !this.original || this.timer !== null) return;
-    const { frameCount, delayMs } = effectPreviewTiming(this.settings);
-    if (frameCount < 2) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      if (!this.original || !this.settings) return;
-      this.frameIndex = (this.frameIndex + 1) % frameCount;
-      this.draw();
-      this.schedule();
-    }, delayMs);
+    if (!this.playing) return;
+    this.usingRaf = typeof requestAnimationFrame === 'function';
+    if (this.usingRaf) this.request = requestAnimationFrame(time => this.tick(time));
+    else this.request = setTimeout(() => this.tick(this.clock()), 1000 / 60);
   }
 
-  private draw(): void {
-    if (!this.original || !this.settings) return;
-    const { frameCount } = effectPreviewTiming(this.settings);
-    const frame = this.context.createImageData(this.original.width, this.original.height);
-    frame.data.set(this.original.data);
-    if (frameCount > 1) {
-      applyVisualEffectsToPixels(frame.data, frame.width, frame.height,
-        this.frameIndex / frameCount, this.settings);
+  private tick(now: number): void {
+    this.request = null;
+    if (!this.playing || !this.settings) return;
+    this.elapsedMs = Math.max(0, now - this.startMs);
+    // Respect screen refresh and avoid unnecessary CPU work on high-Hz displays.
+    if (now - this.lastPaintMs >= 1000 / 60 - 1) {
+      const { frameCount, delayMs } = effectPreviewTiming(this.settings);
+      const loopMs = frameCount * delayMs;
+      const position = loopMs ? this.elapsedMs % loopMs : 0;
+      this.frameIndex = loopMs ? Math.floor(position / delayMs) : 0;
+      this.lastPaintMs = now;
+      this.draw(loopMs ? position / loopMs : 0);
     }
-    this.context.putImageData(frame, 0, 0);
+    this.schedule();
+  }
+
+  private draw(phase: number): void {
+    if (!this.original || !this.settings || !this.frame) return;
+    const { frameCount } = effectPreviewTiming(this.settings);
+    this.frame.data.set(this.original.data);
+    if (frameCount > 1) {
+      applyVisualEffectsToPixels(this.frame.data, this.frame.width, this.frame.height,
+        phase, this.settings);
+    }
+    this.context.putImageData(this.frame, 0, 0);
     this.onFrame(this.frameIndex, frameCount);
   }
 }
