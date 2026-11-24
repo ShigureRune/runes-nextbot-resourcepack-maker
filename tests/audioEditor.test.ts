@@ -31,5 +31,5 @@ test('sound distortion normalizes strength and hard-clips a copied PCM buffer', 
   assert.equal(crushed[3], 1);
   assert.equal(crushed[4], -1);
   assert.ok(crushed[1] > source[1]);
-  assert.equal(source[3], 0.9);
+  assert.ok(Math.abs(source[3] - 0.9) < 1e-6);
 });
