@@ -1,8 +1,8 @@
 import {
   applyVisualEffectsToPixels, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS,
   hasAnimatedVisualEffects, normalizeVisualEffects,
-} from './visualEffects';
-import type { VisualEffectSettings } from './visualEffects';
+} from './visualEffects.ts';
+import type { VisualEffectSettings } from './visualEffects.ts';
 
 /** Match the frame count and Minecraft tick duration of exported visual effects. */
 export function effectPreviewTiming(rawSettings: VisualEffectSettings): { frameCount: number; delayMs: number } {
