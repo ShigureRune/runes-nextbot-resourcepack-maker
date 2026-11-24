@@ -1,5 +1,7 @@
 import { isOggVorbis, isPng } from './assetValidation';
 import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
+import { editorTabGuide } from './editorTabs';
+import type { EditorTab } from './editorTabs';
 import { mountInventory } from './inventory';
 import { loadSlots, saveSlots } from './persistence';
 import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
@@ -461,9 +463,8 @@ videoCaptureButton.addEventListener('click', async () => {
     const png = await captureVideoFrame(videoPreview, t);
     if (version !== videoVersion || store.get(id).visual !== visual || currentSlot() !== id) return;
     videoFrameSelection = { slotId: id, source: visual.source, png };
-    await renderImageEditor(id);
-    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。下の画像編集を適用して保存してください。`;
-    imageEditorPanel.scrollIntoView({ block: 'nearest' });
+    activateEditorTab('image', true);
+    videoStatus.textContent = `${t.toFixed(2)}秒のフレームを取得しました。「画像・GIF」タブで切り抜き・透過を適用して保存してください。`;
   } catch (error) {
     if (version === videoVersion) videoStatus.textContent = '取得に失敗：' +
       (error instanceof Error ? error.message : '動画フレームを確認してください。');
@@ -768,16 +769,87 @@ const inventoryHelp = document.querySelector<HTMLElement>('.inventory-help');
 const editorHeading = get<HTMLElement>('editor-heading');
 const prevButton = get<HTMLButtonElement>('prev-slot');
 const nextButton = get<HTMLButtonElement>('next-slot');
+const editorTabs = ['basic', 'image', 'video', 'audio'] as const;
+const editorTabNav = get<HTMLElement>('editor-tab-nav');
+const editorTabButtons = [...editorTabNav.querySelectorAll<HTMLButtonElement>('[data-editor-tab]')];
+let activeEditorTab: EditorTab = 'basic';
+
+function refreshEditorGuide(): void {
+  const slot = store.get(currentSlot());
+  const hasFrame = videoFrameSelection?.slotId === slot.id &&
+    videoFrameSelection.source === slot.visual?.source;
+  const guide = editorTabGuide(slot, Boolean(hasFrame));
+  get<HTMLElement>('editor-image-empty').hidden = !guide.imageEmpty;
+  get<HTMLElement>('editor-video-empty').hidden = !guide.videoEmpty;
+  get<HTMLElement>('editor-audio-empty').hidden = !guide.audioEmpty;
+  get<HTMLElement>('editor-image-empty-message').textContent = guide.imageMessage;
+  get<HTMLElement>('editor-video-jump').hidden = !guide.needsVideoCapture;
+  get<HTMLElement>('editor-next-action').textContent = guide.nextAction;
+  get<HTMLElement>('editor-shortname').textContent = slot.name.trim() || '名前未設定';
+  get<HTMLElement>('editor-btn-image').dataset.state = guide.imageState;
+  get<HTMLElement>('editor-btn-video').dataset.state = guide.videoState;
+  get<HTMLElement>('editor-btn-audio').dataset.state = guide.audioState;
+}
+
+function activateEditorTab(tab: EditorTab, scrollToTabs = false): void {
+  if (activeEditorTab === 'image' && tab !== 'image') {
+    ++editToken;
+    clearGifPreview();
+    clearTimeout(previewTimer);
+    ++previewVersion;
+    activeBitmap?.close();
+    activeBitmap = null;
+    bitmapSource = null;
+    bitmapSlot = 0;
+  }
+  if (tab !== 'audio') stopAudioPreview();
+  if (tab !== 'video') videoPreview.pause();
+  activeEditorTab = tab;
+  for (const key of editorTabs) {
+    const selected = key === tab;
+    const button = get<HTMLButtonElement>('editor-btn-' + key);
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    get<HTMLElement>('editor-tab-' + key).hidden = !selected;
+  }
+  refreshEditorGuide();
+  const id = currentSlot();
+  if (tab === 'image') void renderImageEditor(id);
+  if (tab === 'video') renderVideoEditor(id);
+  if (tab === 'audio') renderAudioEditor(id);
+  if (scrollToTabs) editorTabNav.scrollIntoView({ block: 'start' });
+}
+for (const button of editorTabButtons) {
+  button.addEventListener('click', () => activateEditorTab(button.dataset.editorTab as EditorTab));
+  button.addEventListener('keydown', event => {
+    const index = editorTabs.indexOf(button.dataset.editorTab as EditorTab);
+    const target = event.key === 'ArrowRight' ? (index + 1) % editorTabs.length
+      : event.key === 'ArrowLeft' ? (index + editorTabs.length - 1) % editorTabs.length
+      : event.key === 'Home' ? 0
+      : event.key === 'End' ? editorTabs.length - 1 : -1;
+    if (target === -1) return;
+    event.preventDefault();
+    const nextTab = editorTabs[target];
+    activateEditorTab(nextTab);
+    get<HTMLButtonElement>('editor-btn-' + nextTab).focus();
+  });
+}
+for (const button of document.querySelectorAll<HTMLButtonElement>('.editor-tab-jump')) {
+  button.addEventListener('click', () => activateEditorTab(button.dataset.editorJump as EditorTab, true));
+}
 function openEditor(id: number): void {
+  const fromInventory = editorPanel.hidden;
   slotSelect.value = String(id);
   editorPanel.hidden = false;
   inventoryRoot.hidden = true;
   if (inventoryHelp) inventoryHelp.hidden = true;
   feedback.textContent = '';
+  if (fromInventory) activateEditorTab('basic');
   render();
   editorPanel.scrollIntoView({ block: 'start' });
 }
 function showInventory(): void {
+  activateEditorTab('basic');
   stopAudioPreview();
   videoPreview.pause();
   editorPanel.hidden = true;
@@ -810,7 +882,7 @@ function render(): void {
   const state = slotStatus(slot);
   const summary = store.summary();
   inventory.render(currentSlot());
-  editorHeading.textContent = `Slot ${String(slot.id).padStart(2, '0')}`;
+  editorHeading.textContent = 'Slot ' + String(slot.id).padStart(2, '0') + ' / ' + SLOT_COUNT;
   prevButton.disabled = slot.id === 1;
   nextButton.disabled = slot.id === SLOT_COUNT;
   nameInput.value = slot.name;
@@ -820,6 +892,7 @@ function render(): void {
   slotState.dataset.state = state;
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${slot.visual?.sourceFormat === 'video' ? (slot.visual.processed ? '（静止画処理済み）' : '（フレーム編集待ち）') : ''}`;
   soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
+  refreshEditorGuide();
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
   get<HTMLButtonElement>('download').disabled = !summary.canExport;
   exportState.textContent = summary.canExport
@@ -827,9 +900,9 @@ function render(): void {
     : summary.partial > 0
       ? `設定途中の${summary.partial}枠を完成させるか削除すると書き出し条件を満たせます。`
       : '少なくとも1枠に画像と音声を揃えてください。';
-  void renderImageEditor(slot.id);
-  renderAudioEditor(slot.id);
-  renderVideoEditor(slot.id);
+  if (!editorPanel.hidden && activeEditorTab === 'image') void renderImageEditor(slot.id);
+  if (!editorPanel.hidden && activeEditorTab === 'audio') renderAudioEditor(slot.id);
+  if (!editorPanel.hidden && activeEditorTab === 'video') renderVideoEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   if (slot.visual?.processed?.png) {
@@ -881,6 +954,7 @@ slotSelect.addEventListener('change', () => {
 
 nameInput.addEventListener('input', () => {
   store.update(currentSlot(), { name: nameInput.value });
+  refreshEditorGuide();
   inventory.render(currentSlot());
   queueSave();
 });
@@ -934,8 +1008,10 @@ imageInput.addEventListener('change', async () => {
       error instanceof Error ? error.message : '画像・動画を読み取れませんでした。';
     return;
   }
-  if (currentSlot() === id) render();
-  else inventory.render(currentSlot());
+  if (currentSlot() === id) {
+    render();
+    activateEditorTab(store.get(id).visual?.sourceFormat === 'video' ? 'video' : 'image', true);
+  } else inventory.render(currentSlot());
   queueSave();
 });
 
@@ -969,8 +1045,10 @@ soundInput.addEventListener('change', async () => {
   } catch (error) {
     feedback.textContent = error instanceof Error ? error.message : '音声を読み取れませんでした。';
   }
-  if (currentSlot() === id) render();
-  else inventory.render(currentSlot());
+  if (currentSlot() === id) {
+    render();
+    activateEditorTab('audio', true);
+  } else inventory.render(currentSlot());
   queueSave();
 });
 
