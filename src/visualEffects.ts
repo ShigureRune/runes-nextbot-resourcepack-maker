@@ -13,7 +13,7 @@ export interface VisualEffectSettings {
 }
 
 export function defaultVisualEffectSettings(): VisualEffectSettings {
-  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 85 };
+  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 35 };
 }
 
 export function normalizeVisualEffects(value: unknown, legacyGaming = false): VisualEffectSettings {
@@ -127,51 +127,56 @@ function glintDistance(nx: number, ny: number, phase: number): number {
 }
 
 function ribbonMask(distance: number): number {
-  // Soft, broad reflection with dark gaps between successive sweeps.
-  return 1 - smoothstep(0.035, 0.31, Math.abs(distance));
+  // A soft violet band with an unlit gap, not a full-screen purple wash.
+  return 1 - smoothstep(0.06, 0.27, Math.abs(distance));
 }
 
 export function enchantGlintIntensity(nx: number, ny: number, phase: number): number {
   return ribbonMask(glintDistance(nx, ny, phase));
 }
 
-function screenChannel(base: number, tint: number, amount: number): number {
-  return 255 - (255 - base) * (1 - tint / 255 * amount);
-}
-
+/**
+ * Subtle, satin-like purple glint, inspired by the unobtrusive look of
+ * modern Minecraft enchantment overlays. All colors are generated locally;
+ * no Minecraft texture or rendering asset is embedded.
+ *
+ * Unlike the old screen/white-specular formula, this composites a low-opacity
+ * purple sheet into the original RGB. Bright and white pixels therefore keep
+ * their structure, black pixels receive a readable faint purple glimmer,
+ * and no color channel gets an overpowering white hotspot.
+ */
 function applyEnchantGlint(
   pixels: Uint8ClampedArray, width: number, height: number, phase: number, strength: number,
 ): void {
-  const opacity = Math.max(0, Math.min(1, strength / 100));
-  if (opacity <= 0) return;
+  const power = Math.max(0, Math.min(1, strength / 100));
+  if (power <= 0) return;
   for (let y = 0; y < height; y++) {
+    const ny = height <= 1 ? 0 : y / (height - 1);
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       if (pixels[i + 3] === 0) continue;
       const nx = width <= 1 ? 0 : x / (width - 1);
-      const ny = height <= 1 ? 0 : y / (height - 1);
-      const d = glintDistance(nx, ny, phase);
-      const body = ribbonMask(d);
-      if (body <= 0.001) continue;
+      const distance = glintDistance(nx, ny, phase);
+      const band = ribbonMask(distance);
+      if (band < 0.001) continue;
 
-      // Purple -> indigo along the broad shoulder, with a narrow, silky
-      // cool-white specular peak on the same diagonal, not a crossing line.
-      const cool = smoothstep(-0.23, 0.23, d);
-      const red = 188 - cool * 52;
-      const green = 53 + cool * 26;
-      const blue = 255;
-      const light = body * opacity * 0.86;
-      const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
-      const reflect = smoothstep(145, 245, luminance) * body * opacity * 0.76;
-      const specular = (1 - smoothstep(0.012, 0.075, Math.abs(d - 0.035))) * opacity * 0.92;
-      const tint = (base: number, color: number, peak: number) => {
-        const lit = screenChannel(base, color, light);
-        const colored = lit * (1 - reflect) + color * reflect;
-        return Math.round(colored * (1 - specular) + peak * specular);
+      // A faint, narrower satin reflection travels inside the broad violet band.
+      // Both use the same diagonal, avoiding the old cross-hatched grid artifact.
+      const core = (1 - smoothstep(0.012, 0.085, Math.abs(distance - 0.018))) * band;
+      const cool = smoothstep(-0.22, 0.22, distance);
+      const violetR = 152 - 32 * cool;
+      const violetG = 82 + 16 * cool;
+      const violetB = 213 + 18 * cool;
+      const tintOpacity = power * (0.24 * band + 0.04 * core);
+      const satinOpacity = power * 0.03 * core;
+      // Preserve image alpha, details and perceived brightness. No additive white.
+      const mix = (base: number, violet: number, highlight: number) => {
+        const tinted = base + (violet - base) * tintOpacity;
+        return Math.round(tinted + (highlight - tinted) * satinOpacity);
       };
-      pixels[i] = tint(pixels[i], red, 245);
-      pixels[i + 1] = tint(pixels[i + 1], green, 239);
-      pixels[i + 2] = tint(pixels[i + 2], blue, 255);
+      pixels[i] = mix(pixels[i], violetR, 205);
+      pixels[i + 1] = mix(pixels[i + 1], violetG, 195);
+      pixels[i + 2] = mix(pixels[i + 2], violetB, 232);
     }
   }
 }
