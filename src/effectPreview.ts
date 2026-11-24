@@ -21,9 +21,11 @@ export class VisualEffectPreviewPlayer {
   private settings: VisualEffectSettings | null = null;
   private frameIndex = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly onFrame: (index: number, count: number) => void;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, onFrame: (index: number, count: number) => void = () => {}) {
     this.canvas = canvas;
+    this.onFrame = onFrame;
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('Canvas 2Dを利用できません。');
     this.context = context;
@@ -32,6 +34,7 @@ export class VisualEffectPreviewPlayer {
   get isAnimated(): boolean {
     return this.settings !== null && hasAnimatedVisualEffects(this.settings);
   }
+  get isPlaying(): boolean { return this.timer !== null; }
 
   clear(): void {
     this.pause();
@@ -39,6 +42,7 @@ export class VisualEffectPreviewPlayer {
     this.settings = null;
     this.frameIndex = 0;
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.onFrame(0, 0);
   }
 
   setSource(image: ImageBitmap, rawSettings: VisualEffectSettings): void {
@@ -85,5 +89,6 @@ export class VisualEffectPreviewPlayer {
         this.frameIndex / frameCount, this.settings);
     }
     this.context.putImageData(frame, 0, 0);
+    this.onFrame(this.frameIndex, frameCount);
   }
 }
