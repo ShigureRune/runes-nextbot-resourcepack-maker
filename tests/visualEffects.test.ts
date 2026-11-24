@@ -120,11 +120,9 @@ test('enchant-only rendering preserves transparent pixels and alpha', () => {
   });
   assert.deepEqual([...pixels.slice(4, 8)], transparentBefore);
   assert.deepEqual([pixels[3], pixels[7], pixels[11], pixels[15]], alphaBefore);
-  // Some corners can be between thin streaks; test that at least one visible
-  // pixel changes without modifying the transparent one.
-  const visibleBefore = [90,100,110, 120,130,140, 150,160,170];
-  const visibleAfter = [...pixels.slice(0,3), ...pixels.slice(8,11), ...pixels.slice(12,15)];
-  assert.ok(visibleAfter.some((channel,index) => channel !== visibleBefore[index]));
+  // This tiny 2×2 sample can land entirely between the fine lines.
+  // Transparency and untouched transparent RGB must still be preserved.
+  assert.deepEqual([pixels[3], pixels[7], pixels[11], pixels[15]], alphaBefore);
 });
 
 test('zero enchant strength leaves an enchant-only image untouched', () => {
@@ -177,7 +175,13 @@ test('default subtle 35% strength leaves most of the original pixels unchanged',
   }
   const meanRgbDrift = totalDrift / (size * size * 3);
   assert.ok(meanRgbDrift < 12, `RGB drift should be gentle, got ${meanRgbDrift}`);
-  assert.ok(meanRgbDrift > 1, 'effect must remain visibly present');
+  // Narrow, separated lines affect much less area than the old broad ribbon.
+  assert.ok(meanRgbDrift > 0.3, 'fine streaks should still register on the full image');
+  let strongestChannelShift = 0;
+  for (let i = 0; i < image.length; i++) {
+    strongestChannelShift = Math.max(strongestChannelShift, Math.abs(image[i] - before[i]));
+  }
+  assert.ok(strongestChannelShift >= 8, 'individual visible streaks must remain legible');
 });
 test('stronger settings increase violet contrast on white textures', () => {
   const size = 16;
