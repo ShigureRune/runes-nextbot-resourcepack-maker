@@ -70,8 +70,13 @@ export class InventoryAnimationController {
     });
     window.addEventListener('pagehide', () => {
       this.stop();
-      for (const item of this.records.values()) this.release(item);
+      for (const item of this.records.values()) {
+        item.visible = false;
+        this.release(item);
+      }
     });
+    window.addEventListener('pageshow', () => this.recheckVisibility());
+    window.addEventListener('resize', () => this.recheckVisibility(), { passive: true });
   }
 
   update(id: number, canvas: HTMLCanvasElement, png: Blob, mcmeta: string,
