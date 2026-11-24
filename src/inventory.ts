@@ -1,6 +1,7 @@
 
 import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
-import type { SlotStatus } from './slots';
+import type { SlotStatus, SlotTransferMode } from './slots';
+import { slotHasContent } from './slots';
 import { scrollGeometry } from './scrollBounds';
 import './inventory.css';
 
@@ -9,12 +10,20 @@ export function mountInventory(
   root: HTMLElement,
   store: NextbotSlotStore,
   onSelect: (id: number) => void,
+  onModified: () => void,
 ): { render: (selectedId: number) => void } {
   root.innerHTML = [
     '<div class="nb-tabs"><span class="nb-tab nb-tab-active" aria-hidden="true">▣ NEXTBOTS</span></div>',
     '<div class="nb-panel">',
     '<div class="nb-panel-header"><span class="nb-panel-title">Nextbot 一覧</span>',
     '<span id="nb-inventory-count" class="nb-count">0 / 99</span></div>',
+    '<div class="nb-tools" role="group" aria-label="スロットの整理">',
+    '<button type="button" class="nb-tool-button" data-action="copy" aria-pressed="false">コピー</button>',
+    '<button type="button" class="nb-tool-button" data-action="move" aria-pressed="false">移動</button>',
+    '<button type="button" class="nb-tool-button" data-action="swap" aria-pressed="false">入れ替え</button>',
+    '<button type="button" class="nb-tool-cancel" id="nb-cancel-transfer" hidden>キャンセル</button>',
+    '</div>',
+    '<p id="nb-operation-status" class="nb-operation-status" role="status" aria-live="polite">通常モード：タップで編集。整理するときは操作を選んでください。</p>',
     '<div class="nb-frame"><div id="nb-scroll-area" class="nb-scroll-area" tabindex="0" aria-label="スクロールできるNextbot一覧">',
     '<div id="nb-grid" class="nb-grid" role="group" aria-label="99スロット"></div></div>',
     '<div class="nb-scroll-rail" aria-hidden="true"><div class="nb-scroll-thumb"></div></div></div>',
@@ -35,6 +44,92 @@ export function mountInventory(
   const thumb = required<HTMLDivElement>('.nb-scroll-thumb');
   const count = required<HTMLSpanElement>('#nb-inventory-count');
   const hint = required<HTMLDivElement>('#nb-selection-hint');
+  const operationStatus = required<HTMLParagraphElement>('#nb-operation-status');
+  const cancelButton = required<HTMLButtonElement>('#nb-cancel-transfer');
+  const operationButtons = [...root.querySelectorAll<HTMLButtonElement>('.nb-tool-button')];
+  let operation: SlotTransferMode | null = null;
+  let sourceId: number | null = null;
+  let renderedSelectedId = 1;
+
+  function slotLabel(id: number): string { return 'Slot ' + String(id).padStart(2, '0'); }
+  function operationLabel(mode: SlotTransferMode): string {
+    return mode === 'copy' ? 'コピー' : mode === 'move' ? '移動' : '入れ替え';
+  }
+
+  function refreshOperationUi(): void {
+    for (const button of operationButtons) {
+      const active = button.dataset.action === operation;
+      button.setAttribute('aria-pressed', String(active));
+      button.classList.toggle('nb-tool-active', active);
+    }
+    cancelButton.hidden = operation === null;
+    for (const button of buttons) {
+      const activeSource = operation !== null && sourceId === Number(button.dataset.id);
+      button.classList.toggle('nb-slot-source', activeSource);
+    }
+  }
+  function beginOperation(next: SlotTransferMode): void {
+    operation = next;
+    sourceId = null;
+    refreshOperationUi();
+    operationStatus.textContent = operationLabel(next) + '：まず元になるスロットをタップしてください。';
+  }
+  function cancelOperation(): void {
+    operation = null;
+    sourceId = null;
+    refreshOperationUi();
+    operationStatus.textContent = '通常モードに戻りました。タップでスロットを編集できます。';
+  }
+  for (const button of operationButtons) {
+    button.addEventListener('click', () => beginOperation(button.dataset.action as SlotTransferMode));
+  }
+  cancelButton.addEventListener('click', cancelOperation);
+
+  function selectSlot(id: number): void {
+    if (!operation) { onSelect(id); return; }
+    if (sourceId === null) {
+      if (!slotHasContent(store.get(id))) {
+        operationStatus.textContent = slotLabel(id) + 'は空です。データの入った元スロットを選んでください。';
+        return;
+      }
+      sourceId = id;
+      refreshOperationUi();
+      operationStatus.textContent = slotLabel(id) + 'を選択中。' + operationLabel(operation) +
+        '先のスロットをタップしてください。変更する場合は操作ボタンを押し直せます。';
+      return;
+    }
+    if (id === sourceId) {
+      operationStatus.textContent = '元と先は同じ枠にできません。別のスロットを選んでください。';
+      return;
+    }
+    const mode = operation;
+    const fromId = sourceId;
+    const occupied = slotHasContent(store.get(id));
+    const label = operationLabel(mode);
+    if (occupied && (mode === 'copy' || mode === 'move')) {
+      if (!window.confirm(slotLabel(id) + 'には既存データがあります。\\n' +
+        slotLabel(fromId) + 'から' + label + 'すると、' + slotLabel(id) + 'の名前・画像・音声が上書きされます。\\n本当に実行しますか？')) {
+        operationStatus.textContent = '上書きをキャンセルしました。別のコピー・移動先も選べます。';
+        return;
+      }
+    } else if (occupied && mode === 'swap') {
+      if (!window.confirm(slotLabel(fromId) + ' と ' + slotLabel(id) +
+        ' の名前・画像・音声を入れ替えますか？（データは消えません）')) {
+        operationStatus.textContent = '入れ替えをキャンセルしました。';
+        return;
+      }
+    }
+    try {
+      store.transfer(fromId, id, mode, occupied);
+      operation = null;
+      sourceId = null;
+      onModified();
+      refreshOperationUi();
+      operationStatus.textContent = slotLabel(fromId) + ' → ' + slotLabel(id) + '：' + label + '完了。自動保存します。';
+    } catch (error) {
+      operationStatus.textContent = '操作失敗：' + (error instanceof Error ? error.message : 'スロットを確認してください。');
+    }
+  }
 
   const buttons: HTMLButtonElement[] = [];
   const urls = new Map<number, { blob: Blob; url: string }>();
@@ -44,7 +139,7 @@ export function mountInventory(
     button.type = 'button';
     button.className = 'nb-slot nb-slot-empty';
     button.dataset.id = String(id);
-    button.addEventListener('click', () => onSelect(id));
+    button.addEventListener('click', () => selectSlot(id));
     grid.append(button);
     buttons.push(button);
   }
@@ -80,6 +175,7 @@ export function mountInventory(
   });
 
   function render(selectedId: number): void {
+    renderedSelectedId = selectedId;
     const data = store.list();
     const summary = store.summary();
     count.textContent = String(summary.complete) + ' / ' + String(SLOT_COUNT) + ' 完成';
@@ -126,6 +222,7 @@ export function mountInventory(
 
     const selected = store.get(selectedId);
     hint.textContent = '選択中：Slot ' + String(selectedId).padStart(2, '0') + '（' + statusNames[slotStatus(selected)] + '）';
+    refreshOperationUi();
     updateRail();
   }
 

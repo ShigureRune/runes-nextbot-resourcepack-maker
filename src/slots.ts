@@ -5,6 +5,7 @@
 export const SLOT_COUNT = 99;
 
 export type SlotStatus = 'empty' | 'partial' | 'complete';
+export type SlotTransferMode = 'copy' | 'move' | 'swap';
 
 export interface VisualAsset {
   readonly sourceName: string;
@@ -45,6 +46,11 @@ export function slotStatus(slot: NextbotSlot): SlotStatus {
   return imageReady && audioReady ? 'complete' : 'partial';
 }
 
+/** A name-only slot is also meaningful content during copy/move/swap. */
+export function slotHasContent(slot: NextbotSlot): boolean {
+  return slot.name.length > 0 || slot.visual !== null || slot.audio !== null;
+}
+
 function assertSlotId(id: number): void {
   if (!Number.isInteger(id) || id < 1 || id > SLOT_COUNT) {
     throw new RangeError(`Slot must be an integer from 1 to ${SLOT_COUNT}: ${id}`);
@@ -83,6 +89,29 @@ export class NextbotSlotStore {
   clear(id: number): void {
     assertSlotId(id);
     this.slots[id - 1] = blankSlot(id);
+  }
+
+  /** Copy, move, or swap complete slot payloads without changing their fixed IDs.
+   * Blob references are safe to reuse: Blobs are immutable, and replacement edits
+   * always create new asset objects rather than mutating shared data.
+   */
+  transfer(sourceId: number, targetId: number, mode: SlotTransferMode, allowOverwrite = false): void {
+    assertSlotId(sourceId);
+    assertSlotId(targetId);
+    if (sourceId === targetId) throw new Error('同じスロットには操作できません。');
+    if (mode !== 'copy' && mode !== 'move' && mode !== 'swap') throw new Error('操作の種類が不正です。');
+
+    const source = this.slots[sourceId - 1];
+    const target = this.slots[targetId - 1];
+    if (!slotHasContent(source)) throw new Error('元のスロットにコピー・移動できるデータがありません。');
+    if (mode !== 'swap' && slotHasContent(target) && !allowOverwrite) {
+      throw new Error('移動先は使用中です。上書き確認が必要です。');
+    }
+
+    // All validation above happens before modifying either slot.
+    this.slots[targetId - 1] = { ...source, id: targetId };
+    if (mode === 'move') this.slots[sourceId - 1] = blankSlot(sourceId);
+    if (mode === 'swap') this.slots[sourceId - 1] = { ...target, id: sourceId };
   }
 
   summary(): SlotSummary {

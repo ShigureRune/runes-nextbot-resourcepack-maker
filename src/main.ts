@@ -597,7 +597,13 @@ function showInventory(): void {
   render();
   inventoryRoot.scrollIntoView({ block: 'start' });
 }
-const inventory = mountInventory(inventoryRoot, store, openEditor);
+const inventory = mountInventory(inventoryRoot, store, openEditor, () => {
+  // The store transfer modifies one or two slots; persist the whole snapshot atomically.
+  ++imageUploadVersion;
+  videoFrameSelection = null;
+  render();
+  queueSave();
+});
 let previewUrl: string | null = null;
 
 const statusLabels = {
