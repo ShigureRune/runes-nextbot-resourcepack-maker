@@ -119,7 +119,7 @@ test('stronger settings increase violet contrast on white textures', () => {
   const weak = new Uint8ClampedArray(size * size * 4).fill(255);
   const strong = new Uint8ClampedArray(weak);
   const settings = { ...defaultVisualEffectSettings(), enchant: true };
-  assert.equal(settings.enchantStrength, 75);
+  assert.equal(settings.enchantStrength, 85);
   applyVisualEffectsToPixels(weak, size, size, 0.5, { ...settings, enchantStrength: 25 });
   applyVisualEffectsToPixels(strong, size, size, 0.5, { ...settings, enchantStrength: 100 });
   const contrast = (pixels: Uint8ClampedArray) => {
@@ -128,4 +128,11 @@ test('stronger settings increase violet contrast on white textures', () => {
     return sum;
   };
   assert.ok(contrast(strong) > contrast(weak) * 2);
+});
+
+test('glint movement stays continuous across the loop seam', () => {
+  for (const [x, y] of [[0.37, 0.61], [0.13, 0.22], [0.81, 0.46]]) {
+    assert.ok(Math.abs(enchantGlintIntensity(x, y, 0.99999) -
+      enchantGlintIntensity(x, y, 0)) < 0.01);
+  }
 });
