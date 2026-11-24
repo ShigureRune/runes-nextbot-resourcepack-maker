@@ -25,7 +25,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-03 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -67,7 +67,7 @@ app.innerHTML = `
         <h3>画像・GIF・動画</h3>
         <p class="note">写真ライブラリやファイルから画像を選択できます。JPEG・WebP・対応ブラウザのHEICなどはPNGに変換します。画像は256×256に自動調整し、小さい画像はドットをぼかさず拡大します。動画は画像・音声の両方に自動登録されます。</p>
         <div class="fields">
-          <label>画像・GIF（写真ライブラリ対応）<input id="image" type="file" accept="image/*,.png,.gif,.jpg,.jpeg,.webp,.heic,.heif,.avif"></label>
+          <label>画像・GIF（写真ライブラリ対応）<input id="image" type="file" accept="image/*"></label>
           <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
         </div>
       </section>
@@ -220,7 +220,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-03 / GLINT-03</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -1219,43 +1219,65 @@ let imageUploadVersion = 0;
 // iOS Photos can supply JPEG/HEIC regardless of the original photo format.
 // Normalize still images to PNG so all existing crop/effect/export paths work.
 async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: Blob }> {
-  if (file.size < 1 || file.size > 32 * 1024 * 1024) {
-    throw new Error('画像は32MiB以下にしてください。');
+  if (file.size < 1 || file.size > 64 * 1024 * 1024) {
+    throw new Error('画像が空か、64MiBを超えています。');
   }
   let bitmap: ImageBitmap | null = null;
   let image: HTMLImageElement | null = null;
   let url: string | null = null;
   let canvas: HTMLCanvasElement | null = null;
   try {
-    try {
-      bitmap = await createImageBitmap(file);
-    } catch {
-      // Safari may support a photo format in HTMLImageElement but not ImageBitmap.
-      url = URL.createObjectURL(file);
+    const loadImage = async (blob: Blob): Promise<void> => {
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(blob);
       image = new Image();
       const img = image;
       const src = url;
       await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(() => finish(false), 15000);
+        const timer = window.setTimeout(() => finish(false), 25000);
         function finish(ok: boolean): void {
           window.clearTimeout(timer);
           img.onload = null;
           img.onerror = null;
           if (ok) resolve();
-          else reject(new Error('写真を読み込めません。この端末でHEICが非対応の場合はJPEGまたはPNGを選択してください。'));
+          else reject(new Error('写真をデコードできませんでした。'));
         }
         img.onload = () => finish(true);
         img.onerror = () => finish(false);
         img.src = src;
       });
+    };
+    // Photos may have an empty or misleading MIME type. Detect HEIF by bytes.
+    const header = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+    const brands = String.fromCharCode(...header);
+    const heif = /\\.(heic|heif)$/i.test(file.name) || /image\\/hei[cf]/i.test(file.type) ||
+      (brands.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(brands) && !/avif|avis/.test(brands));
+    try {
+      // Prefer the native HTML image path on iOS; it also handles EXIF rotation.
+      await loadImage(file);
+    } catch {
+      try {
+        bitmap = await createImageBitmap(file);
+      } catch {
+        if (!heif) throw new Error('画像形式を読み込めません。JPEG・PNG・GIF・HEICなどの画像を選択してください。');
+        try {
+          const { heicTo } = await import('heic-to');
+          const converted = await heicTo({ blob: file, type: 'image/png' });
+          await loadImage(converted);
+        } catch {
+          throw new Error('HEIC写真を変換できませんでした。写真のダウンロード完了を確認してください。');
+        }
+      }
     }
-    const width = bitmap ? bitmap.width : image!.naturalWidth;
-    const height = bitmap ? bitmap.height : image!.naturalHeight;
+    const decoded = bitmap ?? (image as HTMLImageElement | null);
+    if (!decoded) throw new Error('画像を読み込めませんでした。');
+    const width = bitmap ? bitmap.width : (decoded as HTMLImageElement).naturalWidth;
+    const height = bitmap ? bitmap.height : (decoded as HTMLImageElement).naturalHeight;
     if (!width || !height) throw new Error('画像の大きさを取得できませんでした。');
-    const scale = Math.min(1, 4096 / width, 4096 / height, Math.sqrt(8_000_000 / (width * height)));
+    const scale = Math.min(1, 2048 / width, 2048 / height, Math.sqrt(4_000_000 / (width * height)));
     // Produce the default texture directly from the decoded photo, not a
     // twice-resampled editing copy. Keep the editing source at higher resolution.
-    const png = await fitImagePng(bitmap ?? image!, width, height);
+    const png = await fitImagePng(decoded, width, height);
     if (scale === 1 && file.size <= 16 * 1024 * 1024 && await isPng(file)) return { source: file, png };
     canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.floor(width * scale));
@@ -1263,16 +1285,16 @@ async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: 
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('画像を変換できませんでした。');
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(bitmap ?? image!, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(decoded, 0, 0, canvas.width, canvas.height);
     const output = canvas;
-    const source = await new Promise<Blob>((resolve, reject) => {
-      output.toBlob(blob => blob && blob.size > 0 ? resolve(blob) :
-        reject(new Error('写真のPNG変換に失敗しました。')), 'image/png');
+    const source = await new Promise<Blob>((resolve) => {
+      try { output.toBlob(blob => resolve(blob && blob.size > 0 ? blob : png), 'image/png'); }
+      catch { resolve(png); }
     });
     return { source, png };
   } finally {
     bitmap?.close();
-    if (image) image.removeAttribute('src');
+    (image as HTMLImageElement | null)?.removeAttribute('src');
     if (url) URL.revokeObjectURL(url);
     if (canvas) { canvas.width = 1; canvas.height = 1; }
   }
@@ -1281,9 +1303,19 @@ async function registerVisual(file: File): Promise<void> {
   const id = currentSlot();
   const version = ++imageUploadVersion;
   const previous = store.get(id).visual;
-  feedback.textContent = '画像・動画を確認中…';
+  feedback.textContent = '写真を読み込み中：' + file.name;
   try {
-    const header = new Uint8Array(await file.slice(0, 6).arrayBuffer());
+    // Materialize the iOS picker file before clearing/re-rendering its input.
+    if (file.size < 1 || file.size > 64 * 1024 * 1024) throw new Error('画像が空か、64MiBを超えています。');
+    const bytes = await file.arrayBuffer().catch(() => new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => reader.result instanceof ArrayBuffer ? resolve(reader.result) : reject(new Error('写真の読み込みに失敗しました。'));
+      reader.onerror = () => reject(new Error('写真の読み込みに失敗しました。iCloudからの取得を確認してください。'));
+      reader.readAsArrayBuffer(file);
+    }));
+    file = new File([bytes], file.name, { type: file.type, lastModified: file.lastModified });
+    if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
+    const header = new Uint8Array(bytes, 0, Math.min(6, bytes.byteLength));
     const gifSignature = String.fromCharCode(...header);
     if (gifSignature === 'GIF87a' || gifSignature === 'GIF89a') {
       const info = await inspectGif(file);
@@ -1315,8 +1347,9 @@ async function registerVisual(file: File): Promise<void> {
 }
 imageInput.addEventListener('change', () => {
   const file = imageInput.files?.[0];
-  imageInput.value = '';
-  if (file) void registerVisual(file);
+  if (file) void registerVisual(file).finally(() => {
+    if (imageInput.files?.[0] === file) imageInput.value = '';
+  });
 });
 
 // Both upload controls share one immutable source. Each successful track is
