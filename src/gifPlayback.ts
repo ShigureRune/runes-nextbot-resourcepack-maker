@@ -49,10 +49,16 @@ export class GifPreviewPlayer {
   private speed = 1;
   private loop = true;
 
+  private readonly canvas: HTMLCanvasElement;
+  private readonly onFrame: (frame: number, count: number, playing: boolean) => void;
+
   constructor(
-    private readonly canvas: HTMLCanvasElement,
-    private readonly onFrame: (frame: number, count: number, playing: boolean) => void,
-  ) {}
+    canvas: HTMLCanvasElement,
+    onFrame: (frame: number, count: number, playing: boolean) => void,
+  ) {
+    this.canvas = canvas;
+    this.onFrame = onFrame;
+  }
 
   get hasFrames(): boolean { return this.sprite !== null; }
   get isPlaying(): boolean { return this.playing; }
