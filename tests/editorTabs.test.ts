@@ -61,7 +61,7 @@ test('editor exposes only image and audio tabs while name remains separate', () 
   const imageTab=editor.slice(editor.indexOf('id="editor-tab-image"'),editor.indexOf('id="editor-tab-audio"'));
   assert.ok(imageTab.includes('id="image"'));
   assert.ok(imageTab.includes('id="image-video"'));
-  assert.match(imageTab, /id="image"[^>]*accept="\.png,\.gif,image\/png,image\/gif"/);
+  assert.match(imageTab, /id="image"[^>]*accept="image\/\*"/);
   assert.ok(imageTab.includes('id="video-editor"'));
   assert.ok(imageTab.includes('id="capture-video-animation"'));
   assert.ok(imageTab.includes('id="video-animation-start"'));
