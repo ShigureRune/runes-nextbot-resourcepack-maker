@@ -25,7 +25,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-04 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / GLINT-03</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -220,7 +220,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-04 / GLINT-03</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / GLINT-03</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -1218,6 +1218,24 @@ nameInput.addEventListener('input', () => {
 let imageUploadVersion = 0;
 // iOS Photos can supply JPEG/HEIC regardless of the original photo format.
 // Normalize still images to PNG so all existing crop/effect/export paths work.
+function sniffImageMime(bytes: Uint8Array, fallback = ''): string {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 8 && [137,80,78,71,13,10,26,10].every((v, i) => bytes[i] === v)) return 'image/png';
+  if (bytes.length >= 6) {
+    const sig = String.fromCharCode(...bytes.subarray(0, 6));
+    if (sig === 'GIF87a' || sig === 'GIF89a') return 'image/gif';
+  }
+  if (bytes.length >= 12 &&
+      String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(4, 8)) === 'ftyp') {
+    const brand = String.fromCharCode(...bytes.subarray(8, 12));
+    if (/^(heic|heix|hevc|hevx|mif1|msf1)$/.test(brand)) return 'image/heic';
+    if (/^(avif|avis)$/.test(brand)) return 'image/avif';
+  }
+  return fallback.startsWith('image/') ? fallback : '';
+}
+
 async function readPhotoElement(blob: Blob): Promise<HTMLImageElement> {
   const image = new Image();
   let url: string | null = null;
@@ -1277,7 +1295,7 @@ async function normalizeUploadedPhoto(file: File): Promise<{ source: Blob; png: 
     } catch {
       if (heif) {
         try {
-          const { heicTo } = await import('heic-to');
+          const { heicTo } = await import('heic-to/csp');
           const converted = await heicTo({ blob: file, type: 'image/png' });
           if (!(converted instanceof Blob)) throw new Error('HEIC変換結果が画像ではありません。');
           image = await readPhotoElement(converted);
@@ -1341,9 +1359,15 @@ async function registerVisual(file: File): Promise<void> {
       reader.onerror = () => reject(new Error('写真の読み込みに失敗しました。iCloudからの取得を確認してください。'));
       reader.readAsArrayBuffer(file);
     }));
-    file = new File([bytes], file.name, { type: file.type, lastModified: file.lastModified });
+    const byteView = new Uint8Array(bytes);
+    const detectedType = sniffImageMime(byteView, file.type);
+    file = new File([bytes], file.name || 'photo', {
+      type: detectedType || file.type || 'application/octet-stream',
+      lastModified: file.lastModified,
+    });
     if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
-    const header = new Uint8Array(bytes, 0, Math.min(6, bytes.byteLength));
+    feedback.textContent = `読み込み成功：${file.name} / ${detectedType || file.type || '形式不明'} / ${Math.round(file.size / 1024)}KB`;
+    const header = byteView.subarray(0, Math.min(6, byteView.byteLength));
     const gifSignature = String.fromCharCode(...header);
     if (gifSignature === 'GIF87a' || gifSignature === 'GIF89a') {
       const info = await inspectGif(file);
