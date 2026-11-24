@@ -95,3 +95,37 @@ test('zero enchant strength leaves an enchant-only image untouched', () => {
   });
   assert.deepEqual([...pixels], before);
 });
+
+test('strong glint remains visible on pure white and black images', () => {
+  const size = 32;
+  const white = new Uint8ClampedArray(size * size * 4).fill(255);
+  const black = new Uint8ClampedArray(size * size * 4);
+  for (let i = 3; i < black.length; i += 4) black[i] = 255;
+  const settings = { ...defaultVisualEffectSettings(), enchant: true, enchantStrength: 100 };
+  applyVisualEffectsToPixels(white, size, size, 0.25, settings);
+  applyVisualEffectsToPixels(black, size, size, 0.25, settings);
+  let whiteHighlights = 0, darkHighlights = 0;
+  for (let i = 0; i < white.length; i += 4) {
+    if (white[i + 2] - white[i + 1] >= 60) whiteHighlights++;
+    if (black[i + 2] >= 150 && black[i + 2] - black[i + 1] >= 60) darkHighlights++;
+    assert.equal(white[i + 3], 255);
+    assert.equal(black[i + 3], 255);
+  }
+  assert.ok(whiteHighlights > size * size * 0.08);
+  assert.ok(darkHighlights > size * size * 0.08);
+});
+test('stronger settings increase violet contrast on white textures', () => {
+  const size = 16;
+  const weak = new Uint8ClampedArray(size * size * 4).fill(255);
+  const strong = new Uint8ClampedArray(weak);
+  const settings = { ...defaultVisualEffectSettings(), enchant: true };
+  assert.equal(settings.enchantStrength, 75);
+  applyVisualEffectsToPixels(weak, size, size, 0.5, { ...settings, enchantStrength: 25 });
+  applyVisualEffectsToPixels(strong, size, size, 0.5, { ...settings, enchantStrength: 100 });
+  const contrast = (pixels: Uint8ClampedArray) => {
+    let sum = 0;
+    for (let i = 0; i < pixels.length; i += 4) sum += pixels[i + 2] - pixels[i + 1];
+    return sum;
+  };
+  assert.ok(contrast(strong) > contrast(weak) * 2);
+});
