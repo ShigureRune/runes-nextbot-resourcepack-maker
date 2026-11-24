@@ -11,9 +11,10 @@ import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
 import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
 import {
-  applyVisualEffectsFramePng, createVisualEffectAnimation, defaultVisualEffectSettings,
+  createVisualEffectAnimation, defaultVisualEffectSettings,
   hasAnimatedVisualEffects, normalizeVisualEffects,
 } from './visualEffects';
+import { VisualEffectPreviewPlayer } from './effectPreview';
 import type { GamingDirection, GamingMode, VisualEffectSettings } from './visualEffects';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime, videoAnimationPlan, processVideoAnimation } from './videoEditor';
 import type { VideoAnimationRange } from './videoEditor';
@@ -39,7 +40,7 @@ app.innerHTML = `
       </div>
     </div>
     <div class="editor-hero">
-      <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><span id="preview-label" class="note">画像未登録</span></div>
+      <div class="preview"><img id="preview" alt="Nextbot画像のプレビュー" hidden><canvas id="preview-animation" role="img" aria-label="保存済みNextbotアニメーションのプレビュー" hidden></canvas><span id="preview-label" class="note">画像未登録</span></div>
       <div class="editor-hero-details">
         <div class="editor-hero-top">
           <h2 id="editor-shortname">名前未設定</h2>
@@ -94,7 +95,7 @@ app.innerHTML = `
     </section>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
       <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
-      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
+      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用・動くエフェクトは自動再生）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後のプレビュー"></canvas>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
         <label>切り抜き Y<input id="crop-y" type="number" min="0" step="1"></label>
@@ -597,6 +598,9 @@ const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
 const processedPreview = get<HTMLCanvasElement>('processed-preview');
+const processedPreviewPlayer = new VisualEffectPreviewPlayer(processedPreview);
+const storedPreviewCanvas = get<HTMLCanvasElement>('preview-animation');
+const storedPreviewPlayer = new GifPreviewPlayer(storedPreviewCanvas, () => {});
 const gamingMode = get<HTMLSelectElement>('gaming-mode');
 const gamingDirection = get<HTMLSelectElement>('gaming-direction');
 const gamingDirectionLabel = get<HTMLElement>('gaming-direction-label');
@@ -745,9 +749,20 @@ gifLiveLoop.addEventListener('change', () => gifPlayer.setLoop(gifLiveLoop.check
 get<HTMLInputElement>('gif-start').addEventListener('input', scheduleGifPreview);
 get<HTMLInputElement>('gif-end').addEventListener('input', scheduleGifPreview);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) gifPlayer.pause();
+  if (document.hidden) {
+    gifPlayer.pause();
+    processedPreviewPlayer.pause();
+    storedPreviewPlayer.pause();
+  } else if (!get<HTMLElement>('editor-panel').hidden) {
+    if (activeEditorTab === 'image') processedPreviewPlayer.play();
+    storedPreviewPlayer.play();
+  }
 });
-window.addEventListener('pagehide', () => clearGifPreview(true));
+window.addEventListener('pagehide', () => {
+  clearGifPreview(true);
+  processedPreviewPlayer.clear();
+  clearStoredPreviewAnimation();
+});
 
 function imageSettings(): ImageEditSettings {
   const number = (id: string) => Number(get<HTMLInputElement>(id).value);
@@ -770,23 +785,29 @@ function updateCropInfo(): void {
 }
 function schedulePreview(): void {
   clearTimeout(previewTimer);
+  processedPreviewPlayer.pause();
   const version = ++previewVersion;
   const bitmap = activeBitmap;
-  if (!bitmap) return;
+  if (!bitmap) { processedPreviewPlayer.clear(); return; }
   scheduleGifPreview();
   previewTimer = setTimeout(async () => {
     try {
-      let png = await processPng(bitmap, imageSettings());
+      // Crop/key once; the animation player reuses the original pixels in memory.
+      const png = await processPng(bitmap, imageSettings());
       if (version !== previewVersion || bitmap !== activeBitmap) return;
       const effects = visualEffectSettings();
-      if (hasAnimatedVisualEffects(effects)) png = await applyVisualEffectsFramePng(png, 0, effects);
-      if (version !== previewVersion || bitmap !== activeBitmap) return;
       const image = await createImageBitmap(png);
-      if (version !== previewVersion || bitmap !== activeBitmap) { image.close(); return; }
-      processedPreview.width = image.width; processedPreview.height = image.height;
-      const context = processedPreview.getContext('2d');
-      context?.drawImage(image, 0, 0);
-      image.close();
+      if (version !== previewVersion || bitmap !== activeBitmap ||
+          get<HTMLElement>('editor-panel').hidden || activeEditorTab !== 'image') {
+        image.close();
+        return;
+      }
+      try {
+        processedPreviewPlayer.setSource(image, effects);
+        if (document.hidden) processedPreviewPlayer.pause();
+      } finally {
+        image.close();
+      }
     } catch (error) {
       if (version === previewVersion) imageEditStatus.textContent = error instanceof Error ? error.message : 'プレビューに失敗しました。';
     }
@@ -796,6 +817,7 @@ async function renderImageEditor(id: number): Promise<void> {
   const token = ++editToken;
   if (get<HTMLElement>('editor-panel').hidden) {
     clearGifPreview();
+    processedPreviewPlayer.clear();
     return;
   }
   const slot = store.get(id);
@@ -823,6 +845,7 @@ async function renderImageEditor(id: number): Promise<void> {
     get<HTMLElement>('gif-range').hidden = true;
     get<HTMLElement>('animation-live-panel').hidden = true;
     clearTimeout(previewTimer); ++previewVersion;
+    processedPreviewPlayer.clear();
     activeBitmap?.close(); activeBitmap = null; bitmapSource = null;
     return;
   }
@@ -881,7 +904,7 @@ function saveVisualEffectsFromControls(): void {
 for (const control of [gamingMode, gamingDirection, enchantEnabled, enchantStrength]) {
   control.addEventListener('input', () => {
     refreshEffectControls();
-    if (control === enchantStrength) schedulePreview();
+    schedulePreview();
   });
   control.addEventListener('change', saveVisualEffectsFromControls);
 }
@@ -1020,6 +1043,7 @@ function activateEditorTab(tab: EditorTab, scrollToTabs = false): void {
     ++editToken;
     clearGifPreview();
     clearTimeout(previewTimer);
+    processedPreviewPlayer.clear();
     ++previewVersion;
     activeBitmap?.close();
     activeBitmap = null;
@@ -1083,6 +1107,7 @@ function showInventory(): void {
   ++editToken;
   clearGifPreview();
   clearTimeout(previewTimer);
+  processedPreviewPlayer.clear();
   ++previewVersion;
   activeBitmap?.close();
   activeBitmap = null;
@@ -1103,6 +1128,53 @@ const inventory = mountInventory(inventoryRoot, store, openEditor, () => {
   queueSave();
 });
 let previewUrl: string | null = null;
+let storedAnimationBlob: Blob | null = null;
+let storedAnimationMeta: string | null = null;
+let storedAnimationSlot = 0;
+let storedAnimationVersion = 0;
+
+function clearStoredPreviewAnimation(): void {
+  ++storedAnimationVersion;
+  storedPreviewPlayer.clear();
+  storedPreviewCanvas.hidden = true;
+  storedAnimationBlob = null;
+  storedAnimationMeta = null;
+  storedAnimationSlot = 0;
+}
+
+function renderStoredPreviewAnimation(slotId: number, png: Blob, mcmeta: string): void {
+  if (storedAnimationBlob === png && storedAnimationMeta === mcmeta && storedAnimationSlot === slotId) return;
+  clearStoredPreviewAnimation();
+  storedAnimationBlob = png;
+  storedAnimationMeta = mcmeta;
+  storedAnimationSlot = slotId;
+  const version = storedAnimationVersion;
+  void createImageBitmap(png).then(sprite => {
+    if (version !== storedAnimationVersion || get<HTMLElement>('editor-panel').hidden ||
+        currentSlot() !== slotId || store.get(slotId).visual?.processed?.png !== png) {
+      sprite.close();
+      return;
+    }
+    try {
+      const ticks = previewTicksFromMcmeta(mcmeta, sprite.height / sprite.width);
+      storedPreviewPlayer.setFrames(sprite, ticks);
+      if (document.hidden) storedPreviewPlayer.pause();
+      storedPreviewCanvas.hidden = false;
+      preview.hidden = true;
+      previewLabel.textContent = '保存済みアニメーション（再生中）';
+    } catch {
+      sprite.close();
+      storedPreviewCanvas.hidden = true;
+      preview.hidden = false;
+      previewLabel.textContent = '登録済み画像（再生プレビュー不可）';
+    }
+  }).catch(() => {
+    if (version !== storedAnimationVersion) return;
+    storedPreviewCanvas.hidden = true;
+    preview.hidden = false;
+    previewLabel.textContent = '登録済み画像（再生プレビュー不可）';
+  });
+}
 
 const statusLabels = {
   empty: '未設定',
@@ -1158,12 +1230,21 @@ function render(): void {
   if (!editorPanel.hidden && activeEditorTab === 'audio') renderAudioEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
-  if (slot.visual?.processed?.png) {
-    previewUrl = URL.createObjectURL(slot.visual.processed.previewPng ?? slot.visual.processed.png);
+  const processed = slot.visual?.processed;
+  if (processed?.png) {
+    previewUrl = URL.createObjectURL(processed.previewPng ?? processed.png);
     preview.src = previewUrl;
-    preview.hidden = false;
     previewLabel.textContent = '登録済み画像';
+    if (!editorPanel.hidden && processed.animationMcmeta) {
+      renderStoredPreviewAnimation(slot.id, processed.png, processed.animationMcmeta);
+      preview.hidden = storedPreviewPlayer.hasFrames;
+      storedPreviewCanvas.hidden = !storedPreviewPlayer.hasFrames;
+    } else {
+      clearStoredPreviewAnimation();
+      preview.hidden = false;
+    }
   } else {
+    clearStoredPreviewAnimation();
     preview.removeAttribute('src');
     preview.hidden = true;
     previewLabel.textContent = '画像未登録';
