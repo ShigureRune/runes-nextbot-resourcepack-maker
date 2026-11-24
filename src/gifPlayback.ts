@@ -1,3 +1,35 @@
+/** Shared timing rules for preview and the exported Minecraft animation metadata. */
+export const GIF_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
+export type GifSpeed = typeof GIF_SPEEDS[number];
+
+export function normalizeGifSpeed(value: unknown): GifSpeed {
+  return typeof value === 'number' && GIF_SPEEDS.some(speed => speed === value)
+    ? value as GifSpeed : 1;
+}
+
+/** Scale and round exactly as exported .png.mcmeta: Minecraft runs 20 ticks/s. */
+export function retimedFrameTicks(ticks: number, speed: number): number {
+  if (!Number.isInteger(ticks) || ticks < 1 || ticks > 10000 ||
+      !Number.isFinite(speed) || speed < 0.25 || speed > 2) {
+    throw new RangeError('GIFの再生速度またはフレーム時間が不正です。');
+  }
+  return Math.max(1, Math.min(10000, Math.round(ticks / speed)));
+}
+
+/** The downloaded metadata and the preview must use precisely the same durations. */
+export function retimeAnimationMcmeta(metadata: string, speed: number): string {
+  const doc: unknown = JSON.parse(metadata);
+  if (!doc || typeof doc !== 'object' || !('animation' in doc) ||
+      !doc.animation || typeof doc.animation !== 'object' ||
+      !('frames' in doc.animation) || !Array.isArray(doc.animation.frames)) {
+    throw new Error('アニメーションの時間情報が不正です。');
+  }
+  const baseTicks = previewTicksFromMcmeta(metadata, doc.animation.frames.length);
+  const frames = baseTicks.map((ticks, index) =>
+    ({ index, time: retimedFrameTicks(ticks, speed) }));
+  return JSON.stringify({ animation: { frametime: 1, frames } }, null, 2);
+}
+
 /** Timing-aware preview of the generated Minecraft animation sprite strip. */
 export function previewTicksFromMcmeta(metadata: string, frameCount: number): number[] {
   if (!Number.isInteger(frameCount) || frameCount < 1 || frameCount > 24) {
@@ -15,7 +47,7 @@ export function previewTicksFromMcmeta(metadata: string, frameCount: number): nu
   return animation.frames.map((entry: unknown, index: number): number => {
     if (!entry || typeof entry !== 'object' || !('index' in entry) || !('time' in entry) ||
         entry.index !== index || typeof entry.time !== 'number' ||
-        !Number.isInteger(entry.time) || entry.time < 1 || entry.time > 200) {
+        !Number.isInteger(entry.time) || entry.time < 1 || entry.time > 10000) {
       throw new Error('フレームの再生時間が不正です。');
     }
     return entry.time;
@@ -23,12 +55,8 @@ export function previewTicksFromMcmeta(metadata: string, frameCount: number): nu
 }
 
 export function previewDelayMs(ticks: number, speed: number): number {
-  if (!Number.isInteger(ticks) || ticks < 1 || ticks > 200 ||
-      !Number.isFinite(speed) || speed < 0.25 || speed > 2) {
-    throw new RangeError('アニメーションの再生設定が不正です。');
-  }
-  // Minecraft animation metadata uses 50ms ticks; speed only changes preview.
-  return ticks * 50 / speed;
+  // Delays are quantized to whole 50ms game ticks, not arbitrary JS fractions.
+  return retimedFrameTicks(ticks, speed) * 50;
 }
 
 export function nextPreviewFrame(index: number, count: number, loop: boolean): number | null {
@@ -76,7 +104,7 @@ export class GifPreviewPlayer {
 
   setFrames(sprite: ImageBitmap, ticks: number[]): void {
     if (sprite.width < 1 || sprite.height !== sprite.width * ticks.length ||
-        !ticks.length || ticks.some(tick => !Number.isInteger(tick) || tick < 1 || tick > 200)) {
+        !ticks.length || ticks.some(tick => !Number.isInteger(tick) || tick < 1 || tick > 10000)) {
       sprite.close();
       throw new Error('プレビュー画像とフレーム情報が一致しません。');
     }

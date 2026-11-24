@@ -11,6 +11,8 @@ export interface VisualAsset {
   readonly sourceName: string;
   readonly sourceFormat: 'png' | 'gif' | 'video';
   readonly source: Blob;
+  /** Per-GIF speed saved with the slot, 1 by default. Applied during asset ZIP export. */
+  readonly animationSpeed?: number;
   /** Null until a usable Minecraft texture is successfully prepared. */
   readonly processed: { readonly png: Blob; readonly animationMcmeta?: string; readonly previewPng?: Blob } | null;
 }

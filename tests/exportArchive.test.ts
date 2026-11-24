@@ -35,3 +35,27 @@ test('refuses no complete slots, duplicates and corrupted processed data', async
   const broken: NextbotSlot = {...complete(1),visual:{...complete(1).visual!,processed:{png:new Blob(['not PNG'])}}};
   await assert.rejects(buildAssetArchive([broken]), /形式検証/);
 });
+
+test('ZIP animation duration and manifest use the saved per-slot GIF speed', async () => {
+  const slot = complete(3);
+  const baseMeta = JSON.stringify({animation:{frametime:1,frames:[
+    {index:0,time:1},{index:1,time:3},{index:2,time:5},
+  ]}});
+  const animated: NextbotSlot = {
+    ...slot, visual: { ...slot.visual!, sourceFormat:'gif', animationSpeed:2,
+      processed:{ png:slot.visual!.processed!.png, animationMcmeta:baseMeta } },
+  };
+  const zip = await JSZip.loadAsync(await (await buildAssetArchive([animated])).arrayBuffer());
+  const mcmeta = JSON.parse(await zip.file('slots/slot_03/face.png.mcmeta')!.async('string'));
+  assert.deepEqual(mcmeta.animation.frames.map((f:{time:number})=>f.time),[1,2,3]);
+  const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+  assert.equal(manifest.slots[0].animationSpeed,2);
+  assert.equal(manifest.slots[0].animation,'slots/slot_03/face.png.mcmeta');
+  const original = JSON.parse(baseMeta);
+  assert.deepEqual(original.animation.frames.map((f:{time:number})=>f.time),[1,3,5]);
+
+  const slow: NextbotSlot = { ...animated, visual: {...animated.visual!, animationSpeed:0.25} };
+  const slowZip = await JSZip.loadAsync(await (await buildAssetArchive([slow])).arrayBuffer());
+  const slowData = JSON.parse(await slowZip.file('slots/slot_03/face.png.mcmeta')!.async('string'));
+  assert.deepEqual(slowData.animation.frames.map((f:{time:number})=>f.time),[4,12,20]);
+});

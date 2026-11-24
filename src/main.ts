@@ -7,7 +7,7 @@ import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
-import { GifPreviewPlayer, previewTicksFromMcmeta } from './gifPlayback';
+import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
 import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
@@ -60,13 +60,13 @@ app.innerHTML = `
           <span id="gif-live-frame" class="gif-live-frame" aria-hidden="true">フレーム：―</span>
           <div class="gif-live-controls">
             <button id="gif-live-toggle" class="secondary-button" type="button" disabled>再生</button>
-            <label>プレビュー速度
+            <label>アニメーション速度（ゲーム用）
               <select id="gif-live-speed"><option value="0.25">0.25倍</option><option value="0.5">0.5倍</option><option value="1" selected>1倍</option><option value="1.5">1.5倍</option><option value="2">2倍</option></select>
             </label>
             <label class="gif-live-loop"><input id="gif-live-loop" type="checkbox" checked>ループ再生</label>
           </div>
           <p id="gif-live-status" class="note" role="status" aria-live="polite">GIFを読み込むと表示されます。</p>
-          <p class="note">切り抜き・透過・フレーム範囲の変更を表示に反映します。速度とループ設定はプレビュー専用で、保存データには影響しません。</p>
+          <p class="note">切り抜き・透過・フレーム範囲の変更を反映。速度はスロットに自動保存され、出力ZIPのアニメーションにも反映します。Minecraftの仕様で最短1tick（50ms）、中間の速度は丸められます。ループ切替はプレビュー専用です。</p>
         </section>
       </div>
       <p class="note" id="crop-info"></p>
@@ -498,7 +498,7 @@ function scheduleGifPreview(): void {
           currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
           store.get(id).visual?.source !== source) { sprite.close(); return; }
       gifPlayer.setFrames(sprite, ticks);
-      gifLiveStatus.textContent = `加工後の${result.frameCount}フレームを再生中。再生速度・ループは保存データに影響しません。`;
+      gifLiveStatus.textContent = `加工後の${result.frameCount}フレームを再生中。速度${gifLiveSpeed.value}倍はスロットに保存され、ZIP出力にも反映します。`;
     } catch (error) {
       if (!controller.signal.aborted && version === gifPreviewVersion) {
         gifPreviewKey = null;
@@ -509,7 +509,15 @@ function scheduleGifPreview(): void {
   }, 350);
 }
 gifLiveToggle.addEventListener('click', () => gifPlayer.toggle());
-gifLiveSpeed.addEventListener('change', () => gifPlayer.setSpeed(Number(gifLiveSpeed.value)));
+gifLiveSpeed.addEventListener('change', () => {
+  const visual = store.get(currentSlot()).visual;
+  if (!visual || visual.sourceFormat !== 'gif') return;
+  const speed = normalizeGifSpeed(Number(gifLiveSpeed.value));
+  gifPlayer.setSpeed(speed);
+  store.update(currentSlot(), { visual: { ...visual, animationSpeed: speed } });
+  gifLiveStatus.textContent = `速度${speed}倍を保存中。プレビューと出力ZIPの両方に同じ50ms単位で反映します。`;
+  queueSave();
+});
 gifLiveLoop.addEventListener('change', () => gifPlayer.setLoop(gifLiveLoop.checked));
 get<HTMLInputElement>('gif-start').addEventListener('input', scheduleGifPreview);
 get<HTMLInputElement>('gif-end').addEventListener('input', scheduleGifPreview);
@@ -565,6 +573,10 @@ async function renderImageEditor(id: number): Promise<void> {
     return;
   }
   const slot = store.get(id);
+  // Restore the selected slot's saved speed (including after reload/copy/move).
+  const savedSpeed = normalizeGifSpeed(slot.visual?.animationSpeed);
+  gifLiveSpeed.value = String(savedSpeed);
+  gifPlayer.setSpeed(savedSpeed);
   const nextGifSource = slot.visual?.sourceFormat === 'gif' ? slot.visual.source : null;
   if (gifSource !== nextGifSource) {
     clearGifPreview(true);

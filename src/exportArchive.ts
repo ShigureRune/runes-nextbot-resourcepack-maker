@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { isOggVorbis, isPng } from './assetValidation.ts';
 import { slotStatus } from './slots.ts';
+import { normalizeGifSpeed, retimeAnimationMcmeta } from './gifPlayback.ts';
 import type { NextbotSlot } from './slots.ts';
 
 export const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024;
@@ -24,7 +25,7 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
   }
   const zip = new JSZip();
   const manifest: { archiveType: string; version: number; resourcePackCompatible: false;
-    slots: Array<{ id: number; name: string; texture: string; sound: string; animation?: string }> } = {
+    slots: Array<{ id: number; name: string; texture: string; sound: string; animation?: string; animationSpeed?: number }> } = {
     archiveType: 'runes-nextbot-assets',
     version: 1,
     resourcePackCompatible: false,
@@ -45,14 +46,17 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
     const texture = dir + 'face.png', sound = dir + 'sound.ogg';
     zip.file(texture, visual.png);
     zip.file(sound, audio.ogg);
-    const entry: { id: number; name: string; texture: string; sound: string; animation?: string } = {
+    const entry: { id: number; name: string; texture: string; sound: string; animation?: string; animationSpeed?: number } = {
       id: slot.id, name: slot.name, texture, sound,
     };
     if (visual.animationMcmeta) {
-      // Retain animation metadata but do not claim any particular MOD can read it.
+      // Export the same integer game-tick timings the editor preview uses.
+      // This archive is not yet a MOD-ready resource pack.
       const animation = dir + 'face.png.mcmeta';
-      zip.file(animation, visual.animationMcmeta);
+      const animationSpeed = normalizeGifSpeed(slot.visual?.animationSpeed);
+      zip.file(animation, retimeAnimationMcmeta(visual.animationMcmeta, animationSpeed));
       entry.animation = animation;
+      entry.animationSpeed = animationSpeed;
     }
     manifest.slots.push(entry);
   }
