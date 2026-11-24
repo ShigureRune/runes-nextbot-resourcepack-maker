@@ -13,7 +13,7 @@ export interface VisualEffectSettings {
 }
 
 export function defaultVisualEffectSettings(): VisualEffectSettings {
-  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 55 };
+  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 75 };
 }
 
 export function normalizeVisualEffects(value: unknown, legacyGaming = false): VisualEffectSettings {
@@ -142,12 +142,16 @@ function proceduralGlintLayer(
 
   // Bright diagonal ridges form the repeating texture motif.
   const ridgePosition = Math.abs(fract(rotatedU + rotatedV * 0.31) - 0.5);
-  const ridge = 1 - smoothstep(0.055, 0.19, ridgePosition);
+  const core = 1 - smoothstep(0.045, 0.115, ridgePosition);
+  const halo = 1 - smoothstep(0.095, 0.29, ridgePosition);
+  const ridge = core * 0.72 + halo * 0.28;
 
   // Break the ridges into an irregular shimmer instead of a perfectly clean sine stripe.
   const grainA = 0.5 + 0.5 * Math.sin((rotatedU * 5.0 + rotatedV * 9.0 + seed) * Math.PI * 2);
   const grainB = 0.5 + 0.5 * Math.sin((rotatedU * 13.0 - rotatedV * 4.0 + seed * 1.7) * Math.PI * 2);
-  const grain = 0.38 + 0.62 * (grainA * 0.58 + grainB * 0.42);
+  // Continuous luminous bands: fine texture should enrich the streaks,
+  // not break them into faint speckles.
+  const grain = 0.74 + 0.26 * (grainA * 0.58 + grainB * 0.42);
   return Math.max(0, Math.min(1, ridge * grain));
 }
 
@@ -160,10 +164,10 @@ export function enchantGlintIntensity(nx: number, ny: number, phase: number): nu
   const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
   const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
   const p = ((Number.isFinite(phase) ? phase : 0) % 1 + 1) % 1;
-  const layerA = proceduralGlintLayer(x, y, p, Math.PI / 18, 4.3, -1, 2, 0.13); // +10°
-  const layerB = proceduralGlintLayer(x, y, p, -5 * Math.PI / 18, 5.8, 2, 1, 0.61); // -50°
+  const layerA = proceduralGlintLayer(x, y, p, Math.PI / 18, 3.3, -1, 2, 0.13);
+  const layerB = proceduralGlintLayer(x, y, p, -5 * Math.PI / 18, 4.8, 2, 1, 0.61);
   const crossing = Math.sqrt(layerA * layerB);
-  return Math.max(0, Math.min(1, layerA * 0.68 + layerB * 0.52 + crossing * 0.28));
+  return Math.max(0, Math.min(1, layerA * 0.96 + layerB * 0.72 + crossing * 0.42));
 }
 
 function screenChannel(base: number, tint: number, amount: number): number {
@@ -185,15 +189,20 @@ function applyEnchantGlint(
       const mask = enchantGlintIntensity(nx, ny, phase);
       if (mask <= 0.001) continue;
 
-      // Screen-style purple/blue light preserves the source artwork instead of painting it over.
-      const amount = mask * opacity * 0.78;
+      const amount = Math.min(1, mask * opacity * 1.18);
       const coolShift = 0.5 + 0.5 * Math.sin((nx - ny + phase) * Math.PI * 2);
-      const red = 174 + coolShift * 34;
-      const green = 82 + coolShift * 34;
-      const blue = 244 + coolShift * 11;
-      pixels[i] = screenChannel(pixels[i], red, amount);
-      pixels[i + 1] = screenChannel(pixels[i + 1], green, amount);
-      pixels[i + 2] = screenChannel(pixels[i + 2], blue, amount);
+      const red = 205 + coolShift * 36;
+      const green = 54 + coolShift * 46;
+      const blue = 255;
+      // Screen makes dark textures luminous, but pure white cannot become
+      // brighter. Add a saturated violet tint on light textures as well.
+      const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
+      const tintMix = smoothstep(145, 245, luminance) * amount * 0.60;
+      const tint = (base: number, color: number) =>
+        Math.round(screenChannel(base, color, amount) * (1 - tintMix) + color * tintMix);
+      pixels[i] = tint(pixels[i], red);
+      pixels[i + 1] = tint(pixels[i + 1], green);
+      pixels[i + 2] = tint(pixels[i + 2], blue);
     }
   }
 }
