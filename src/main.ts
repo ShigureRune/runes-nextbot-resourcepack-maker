@@ -1128,6 +1128,53 @@ const inventory = mountInventory(inventoryRoot, store, openEditor, () => {
   queueSave();
 });
 let previewUrl: string | null = null;
+let storedAnimationBlob: Blob | null = null;
+let storedAnimationMeta: string | null = null;
+let storedAnimationSlot = 0;
+let storedAnimationVersion = 0;
+
+function clearStoredPreviewAnimation(): void {
+  ++storedAnimationVersion;
+  storedPreviewPlayer.clear();
+  storedPreviewCanvas.hidden = true;
+  storedAnimationBlob = null;
+  storedAnimationMeta = null;
+  storedAnimationSlot = 0;
+}
+
+function renderStoredPreviewAnimation(slotId: number, png: Blob, mcmeta: string): void {
+  if (storedAnimationBlob === png && storedAnimationMeta === mcmeta && storedAnimationSlot === slotId) return;
+  clearStoredPreviewAnimation();
+  storedAnimationBlob = png;
+  storedAnimationMeta = mcmeta;
+  storedAnimationSlot = slotId;
+  const version = storedAnimationVersion;
+  void createImageBitmap(png).then(sprite => {
+    if (version !== storedAnimationVersion || get<HTMLElement>('editor-panel').hidden ||
+        currentSlot() !== slotId || store.get(slotId).visual?.processed?.png !== png) {
+      sprite.close();
+      return;
+    }
+    try {
+      const ticks = previewTicksFromMcmeta(mcmeta, sprite.height / sprite.width);
+      storedPreviewPlayer.setFrames(sprite, ticks);
+      if (document.hidden) storedPreviewPlayer.pause();
+      storedPreviewCanvas.hidden = false;
+      preview.hidden = true;
+      previewLabel.textContent = '保存済みアニメーション（再生中）';
+    } catch {
+      sprite.close();
+      storedPreviewCanvas.hidden = true;
+      preview.hidden = false;
+      previewLabel.textContent = '登録済み画像（再生プレビュー不可）';
+    }
+  }).catch(() => {
+    if (version !== storedAnimationVersion) return;
+    storedPreviewCanvas.hidden = true;
+    preview.hidden = false;
+    previewLabel.textContent = '登録済み画像（再生プレビュー不可）';
+  });
+}
 
 const statusLabels = {
   empty: '未設定',
@@ -1183,12 +1230,21 @@ function render(): void {
   if (!editorPanel.hidden && activeEditorTab === 'audio') renderAudioEditor(slot.id);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
-  if (slot.visual?.processed?.png) {
-    previewUrl = URL.createObjectURL(slot.visual.processed.previewPng ?? slot.visual.processed.png);
+  const processed = slot.visual?.processed;
+  if (processed?.png) {
+    previewUrl = URL.createObjectURL(processed.previewPng ?? processed.png);
     preview.src = previewUrl;
-    preview.hidden = false;
     previewLabel.textContent = '登録済み画像';
+    if (!editorPanel.hidden && processed.animationMcmeta) {
+      renderStoredPreviewAnimation(slot.id, processed.png, processed.animationMcmeta);
+      preview.hidden = storedPreviewPlayer.hasFrames;
+      storedPreviewCanvas.hidden = !storedPreviewPlayer.hasFrames;
+    } else {
+      clearStoredPreviewAnimation();
+      preview.hidden = false;
+    }
   } else {
+    clearStoredPreviewAnimation();
     preview.removeAttribute('src');
     preview.hidden = true;
     previewLabel.textContent = '画像未登録';
