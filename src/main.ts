@@ -6,7 +6,7 @@ import { mountInventory } from './inventory';
 import { loadSlots, saveSlots } from './persistence';
 import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
 import type { ImageEditSettings } from './imageEditor';
-import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange, normalizeDistortionAmount } from './audioEditor';
+import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange, normalizeDistortionAmount, decodeVideoAudio, audioBufferToWav } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
 import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
@@ -64,8 +64,11 @@ app.innerHTML = `
     <section id="editor-tab-image" class="editor-tab-panel" role="tabpanel" aria-labelledby="editor-btn-image" tabindex="0">
       <section class="setup-block media-upload-block" aria-label="画像・GIF・動画の登録">
         <h3>画像・GIF・動画</h3>
-        <p class="note">PNG / GIF / MP4 / WebM / MOVをここから登録します。動画はこの画面のまま好きなフレームを切り出して画像編集へ進めます。</p>
-        <label>顔画像・動画<input id="image" type="file" accept=".png,.gif,.mp4,.m4v,.webm,.mov,image/png,image/gif,video/mp4,video/webm,video/quicktime"></label>
+        <p class="note">画像または動画を選択します。動画は好きな場面を静止画に切り出せます。</p>
+        <div class="fields">
+          <label>画像・GIF（PNG / GIF）<input id="image" type="file" accept=".png,.gif,image/png,image/gif"></label>
+          <label>動画（MP4 / WebM / MOV）<input id="image-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
+        </div>
       </section>
     <section id="video-editor" class="image-editor" hidden aria-label="動画プレビューと静止画抽出">
       <h3>動画から静止画</h3>
@@ -73,9 +76,9 @@ app.innerHTML = `
       <video id="video-preview" class="video-preview" controls playsinline preload="metadata"></video>
       <label>静止画を取り出す秒数<input id="video-time" type="number" min="0" step="0.01" value="0"></label>
       <input id="video-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="動画の再生位置">
-      <button id="capture-video" type="button">このフレームを画像編集へ</button>
+      <div class="editor-actions"><button id="capture-video" type="button">このフレームを画像編集へ</button><button id="video-to-audio" class="secondary-button" type="button">この動画の音声を編集へ</button></div>
       <p id="video-status" class="note" role="status" aria-live="polite"></p>
-      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。動画から音声・アニメーションを抽出する機能は次の段階。</p>
+      <p class="note">上限32MiB・120秒・約207万画素。MP4/WebM/MOVのコーデック対応はブラウザ依存です。音声は音声タブで切り抜いてOGGにできます。</p>
     </section>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
       <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
@@ -152,11 +155,16 @@ app.innerHTML = `
       <section class="setup-block media-upload-block" aria-label="音声の登録">
         <h3>音声</h3>
         <p class="note">MP3 / OGG Vorbisをここから登録します。MP3は下の編集欄でOGGへ変換できます。</p>
-        <label>音声ファイル<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
+        <div class="fields">
+          <label>音声ファイル（MP3 / OGG）<input id="sound" type="file" accept=".mp3,.ogg,audio/mpeg,audio/ogg"></label>
+          <label>動画から音声を抽出<input id="sound-video" type="file" accept=".mp4,.m4v,.webm,.mov,video/mp4,video/webm,video/quicktime"></label>
+        </div>
+        <button id="use-image-video" type="button" class="secondary-button" hidden>画像タブの動画から音声を取り込む</button>
+        <p class="note">動画の音声トラックを読み込み、下の波形で開始・終了位置を指定できます。動画は32MiB・120秒以内。コーデック対応はブラウザに依存します。</p>
       </section>
     <section id="audio-editor" class="image-editor" hidden aria-label="音声編集">
-      <h3>音声編集（MP3 / OGG Vorbis）</h3>
-      <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声は20MiB・120秒以内。</p>
+      <h3>音声編集（MP3 / OGG / 動画音声）</h3>
+      <p class="note">音声を聴きながら開始・終了位置を指定し、「切り抜いてOGG保存」で本物のOGG Vorbisに変換します（元ファイルは保持）。音声ファイルは20MiB・120秒以内。動画は32MiBまで。</p>
       <audio id="audio-preview" controls preload="metadata" style="width:100%"></audio>
       <canvas id="audio-waveform" width="640" height="100" class="audio-waveform" aria-label="音声波形と切り抜き範囲"></canvas>
       <div class="fields">
@@ -170,7 +178,7 @@ app.innerHTML = `
         <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
         <button id="apply-audio" type="button">切り抜いてOGG保存</button>
       </div>
-      <p class="note">MP3は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
+      <p class="note">MP3と動画音声は変換完了まで未完成扱いです。ブラウザが元音声をデコードできない場合、編集はできません。</p>
     </section>
 
       <details class="editor-danger">
@@ -258,6 +266,10 @@ for (let id = 1; id <= SLOT_COUNT; id++) {
 const nameInput = get<HTMLInputElement>('bot-name');
 const imageInput = get<HTMLInputElement>('image');
 const soundInput = get<HTMLInputElement>('sound');
+const imageVideoInput = get<HTMLInputElement>('image-video');
+const soundVideoInput = get<HTMLInputElement>('sound-video');
+const useImageVideo = get<HTMLButtonElement>('use-image-video');
+let audioUploadVersion = 0;
 const audioEditor = get<HTMLElement>('audio-editor');
 const audioPreview = get<HTMLAudioElement>('audio-preview');
 const audioStart = get<HTMLInputElement>('audio-start');
@@ -269,6 +281,7 @@ const audioDistortion = get<HTMLInputElement>('audio-distortion');
 const audioDistortionValue = get<HTMLSpanElement>('audio-distortion-value');
 let audioPreviewUrl: string | null = null;
 let audioPreviewBlob: Blob | null = null;
+let audioPreviewSlot = 0;
 let audioDecoded: AudioBuffer | null = null;
 let audioDecodeToken = 0;
 let rangePlayback = false;
@@ -301,9 +314,12 @@ function renderAudioEditor(id: number): void {
   const amount = normalizeDistortionAmount(slot.audio?.distortion);
   audioDistortion.value = String(amount);
   audioDistortionValue.textContent = amount === 0 ? '0（OFF）' : amount + '%';
-  const blob = slot.audio?.processed?.ogg ?? slot.audio?.source ?? null;
+  const blob = slot.audio?.source ?? null;
+  const videoAudio = slot.audio?.sourceFormat === 'video';
   audioEditor.hidden = !blob;
-  if (blob === audioPreviewBlob) return;
+  useImageVideo.hidden = slot.visual?.sourceFormat !== 'video';
+  if (blob === audioPreviewBlob && audioPreviewSlot === id) return;
+  audioPreviewSlot = id;
   const token = ++audioDecodeToken;
   stopAudioPreview();
   if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
@@ -318,12 +334,23 @@ function renderAudioEditor(id: number): void {
     audioPreview.load();
     return;
   }
-  audioPreviewUrl = URL.createObjectURL(blob);
-  audioPreview.src = audioPreviewUrl;
+  audioPreview.removeAttribute('src');
   audioPreview.load();
-  void decodeAudio(blob).then(buffer => {
+  if (!videoAudio) {
+    audioPreviewUrl = URL.createObjectURL(blob);
+    audioPreview.src = audioPreviewUrl;
+    audioPreview.load();
+  }
+  audioApplyButton.disabled = true;
+  void (videoAudio ? decodeVideoAudio(blob) : decodeAudio(blob)).then(buffer => {
     if (token !== audioDecodeToken || audioPreviewBlob !== blob) return;
     audioDecoded = buffer;
+    if (videoAudio) {
+      audioPreviewUrl = URL.createObjectURL(audioBufferToWav(buffer));
+      audioPreview.src = audioPreviewUrl;
+      audioPreview.load();
+    }
+    audioApplyButton.disabled = false;
     audioEnd.value = String(buffer.duration);
     audioRangeStatus.textContent = '長さ：' + buffer.duration.toFixed(2) + '秒（波形を表示中）';
     drawAudioWaveform();
@@ -348,7 +375,7 @@ audioDistortion.addEventListener('change', () => {
   if (!asset) return;
   const amount = normalizeDistortionAmount(audioDistortion.value);
   if (normalizeDistortionAmount(asset.distortion) === amount) return;
-  const processed = amount === 0 && asset.sourceFormat === 'ogg' ? { ogg: asset.source } : null;
+  const processed = null;
   store.update(id, { audio: { ...asset, distortion: amount, processed } });
   audioRangeStatus.textContent = amount === 0
     ? '音割れをOFFにしました。'
@@ -381,18 +408,19 @@ get<HTMLButtonElement>('play-audio-range').addEventListener('click', async () =>
 });
 audioApplyButton.addEventListener('click', async () => {
   const id = currentSlot(), audio = store.get(id).audio;
-  const selected = audio?.processed?.ogg ?? audio?.source;
+  const selected = audio?.source;
   if (!audio || !selected || audioApplyButton.disabled) return;
   audioApplyButton.disabled = true;
   stopAudioPreview();
   try {
-    const decoded = audioDecoded && selected === audioPreviewBlob ? audioDecoded : await decodeAudio(selected);
     const start = Number(audioStart.value), requestedEnd = Number(audioEnd.value);
+    const distortion = normalizeDistortionAmount(audioDistortion.value);
+    const decoded = audioDecoded && selected === audioPreviewBlob && audioPreviewSlot === id
+      ? audioDecoded : await (audio.sourceFormat === 'video' ? decodeVideoAudio(selected) : decodeAudio(selected));
     // Container metadata may differ from decoded PCM duration by a few milliseconds.
     const end = requestedEnd > decoded.duration && requestedEnd - decoded.duration < 0.1
       ? decoded.duration : requestedEnd;
     sampleRange({ start, end }, decoded.duration, decoded.sampleRate);
-    const distortion = normalizeDistortionAmount(audioDistortion.value);
     audioRangeStatus.textContent = distortion > 0 ? `音割れ ${distortion}% をかけてOGG Vorbisに変換中…` : '本物のOGG Vorbisに変換中…';
     const ogg = await encodeVorbisRange(decoded, { start, end }, fraction => {
       if (currentSlot() === id) audioRangeStatus.textContent =
@@ -409,7 +437,7 @@ audioApplyButton.addEventListener('click', async () => {
     if (currentSlot() === id) audioRangeStatus.textContent =
       '変換失敗：' + (error instanceof Error ? error.message : '再度お試しください。') + ' 元のデータは保持しました。';
   } finally {
-    audioApplyButton.disabled = false;
+    audioApplyButton.disabled = !audioDecoded;
   }
 });
 window.addEventListener('pagehide', () => {
@@ -965,6 +993,12 @@ for (const button of editorTabButtons) {
 }
 function openEditor(id: number): void {
   const fromInventory = editorPanel.hidden;
+  if (id !== currentSlot()) {
+    stopAudioPreview();
+    videoFrameSelection = null;
+    ++videoVersion;
+    releaseVideoPreview();
+  }
   slotSelect.value = String(id);
   editorPanel.hidden = false;
   inventoryRoot.hidden = true;
@@ -987,6 +1021,7 @@ function showInventory(): void {
 const inventory = mountInventory(inventoryRoot, store, openEditor, () => {
   // The store transfer modifies one or two slots; persist the whole snapshot atomically.
   ++imageUploadVersion;
+  ++audioUploadVersion;
   videoFrameSelection = null;
   render();
   queueSave();
@@ -1013,7 +1048,9 @@ function render(): void {
   nextButton.disabled = slot.id === SLOT_COUNT;
   nameInput.value = slot.name;
   imageInput.value = '';
+  imageVideoInput.value = '';
   soundInput.value = '';
+  soundVideoInput.value = '';
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
   slotState.dataset.state = state;
   const visualNotes: string[] = [];
@@ -1027,7 +1064,7 @@ function render(): void {
   imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${visualNotes.length ? '（' + visualNotes.join('・') + '）' : ''}`;
   const distortion = normalizeDistortionAmount(slot.audio?.distortion);
   const soundNotes: string[] = [];
-  if (slot.audio?.sourceFormat === 'mp3') soundNotes.push(slot.audio.processed ? 'OGG変換済み' : '未変換');
+  if (slot.audio?.sourceFormat === 'mp3' || slot.audio?.sourceFormat === 'video') soundNotes.push(slot.audio.processed ? 'OGG変換済み' : '未変換');
   if (distortion > 0) soundNotes.push(slot.audio?.processed ? `音割れ${distortion}%` : `音割れ${distortion}%未適用`);
   soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${soundNotes.length ? '（' + soundNotes.join('・') + '）' : ''}`;
   refreshEditorGuide();
@@ -1103,14 +1140,13 @@ nameInput.addEventListener('input', () => {
 });
 
 let imageUploadVersion = 0;
-imageInput.addEventListener('change', async () => {
-  const file = imageInput.files?.[0];
-  if (!file) return;
+async function registerVisual(file: File, expected: 'image' | 'video'): Promise<void> {
   const id = currentSlot();
   const version = ++imageUploadVersion;
   const previous = store.get(id).visual;
   feedback.textContent = '画像・動画を確認中…';
   try {
+    if (isVideoFilename(file.name) !== (expected === 'video')) throw new Error(expected === 'video' ? '動画ファイルを選択してください。' : 'PNGまたはGIFを選択してください。');
     if (isVideoFilename(file.name)) {
       const info = await inspectVideo(file, file.name);
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
@@ -1151,17 +1187,76 @@ imageInput.addEventListener('change', async () => {
       error instanceof Error ? error.message : '画像・動画を読み取れませんでした。';
     return;
   }
-  if (currentSlot() === id) {
+  if (currentSlot() === id && !editorPanel.hidden) {
     render();
     activateEditorTab('image', true);
   } else inventory.render(currentSlot());
   queueSave();
+}
+for (const [input, kind] of [[imageInput, 'image'], [imageVideoInput, 'video']] as const) {
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void registerVisual(file, kind);
+  });
+}
+
+async function registerVideoAudio(source: Blob, name: string): Promise<void> {
+  const id = currentSlot();
+  const previous = store.get(id).audio;
+  if (previous && !window.confirm('このスロットの音声を動画の音声に置き換えますか？')) return;
+  const token = ++audioUploadVersion;
+  feedback.textContent = '動画の音声トラックを読み込み中…';
+  try {
+    const decoded = await decodeVideoAudio(source);
+    if (token !== audioUploadVersion || store.get(id).audio !== previous) return;
+    store.update(id, { audio: { sourceName: name, sourceFormat: 'video', source, distortion: 0, processed: null } });
+    if (currentSlot() === id && !editorPanel.hidden) {
+      // Reuse the decoded track; avoid decoding the video a second time.
+      stopAudioPreview();
+      ++audioDecodeToken;
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+      audioPreviewBlob = source;
+      audioPreviewSlot = id;
+      audioDecoded = decoded;
+      audioPreviewUrl = URL.createObjectURL(audioBufferToWav(decoded));
+      audioPreview.src = audioPreviewUrl;
+      audioPreview.load();
+      audioStart.value = '0';
+      audioEnd.value = String(decoded.duration);
+      audioRangeStatus.textContent = '動画音声：' + decoded.duration.toFixed(2) + '秒。切り抜き範囲を指定してください。';
+      audioApplyButton.disabled = false;
+      drawAudioWaveform();
+      feedback.textContent = '動画の音声を取り込みました。';
+      activateEditorTab('audio', true);
+      render();
+    } else inventory.render(currentSlot());
+    queueSave();
+  } catch (error) {
+    if (token === audioUploadVersion && currentSlot() === id) feedback.textContent = error instanceof Error ? error.message : '動画音声を読み込めませんでした。';
+  }
+}
+soundVideoInput.addEventListener('change', () => {
+  const file = soundVideoInput.files?.[0];
+  soundVideoInput.value = '';
+  if (!file) return;
+  if (!isVideoFilename(file.name)) { feedback.textContent = 'MP4 / WebM / MOVを選択してください。'; return; }
+  void registerVideoAudio(file, file.name);
 });
+function useCurrentVideoAudio(): void {
+  const visual = store.get(currentSlot()).visual;
+  if (visual?.sourceFormat === 'video') void registerVideoAudio(visual.source, visual.sourceName);
+}
+useImageVideo.addEventListener('click', useCurrentVideoAudio);
+get<HTMLButtonElement>('video-to-audio').addEventListener('click', useCurrentVideoAudio);
 
 soundInput.addEventListener('change', async () => {
   const file = soundInput.files?.[0];
   if (!file) return;
+  soundInput.value = '';
   const id = currentSlot();
+  const token = ++audioUploadVersion;
+  const previous = store.get(id).audio;
   feedback.textContent = '音声の形式を確認中…';
   try {
     if (file.size === 0 || file.size > MAX_AUDIO_BYTES) {
@@ -1173,7 +1268,8 @@ soundInput.addEventListener('change', async () => {
     if (isOgg && !(await isOggVorbis(file))) {
       throw new Error('OGG Vorbis形式として読み取れません。');
     }
-    if (!isOgg) await decodeAudio(file); // Verify MP3 before accepting it as an unfinished slot.
+    await decodeAudio(file); // Validate duration and decodability before accepting.
+    if (token !== audioUploadVersion || store.get(id).audio !== previous) return;
     store.update(id, {
       audio: {
         sourceName: file.name,
@@ -1183,13 +1279,14 @@ soundInput.addEventListener('change', async () => {
         processed: isOgg ? { ogg: file } : null,
       },
     });
-    feedback.textContent = isOgg
+    if (currentSlot() === id) feedback.textContent = isOgg
       ? `Slot ${id}にOGG Vorbisを登録しました。`
       : `Slot ${id}にMP3を登録しました。「切り抜いてOGG保存」で変換してください。`;
   } catch (error) {
-    feedback.textContent = error instanceof Error ? error.message : '音声を読み取れませんでした。';
+    if (token === audioUploadVersion && currentSlot() === id) feedback.textContent = error instanceof Error ? error.message : '音声を読み取れませんでした。';
+    return;
   }
-  if (currentSlot() === id) {
+  if (currentSlot() === id && !editorPanel.hidden) {
     render();
     activateEditorTab('audio', true);
   } else inventory.render(currentSlot());
@@ -1205,6 +1302,7 @@ get<HTMLButtonElement>('remove-image').addEventListener('click', () => {
   queueSave();
 });
 get<HTMLButtonElement>('remove-sound').addEventListener('click', () => {
+  ++audioUploadVersion;
   store.update(currentSlot(), { audio: null });
   feedback.textContent = '音声を削除しました。';
   render();
@@ -1215,6 +1313,7 @@ get<HTMLButtonElement>('clear-slot').addEventListener('click', () => {
   const id = currentSlot();
   if (!window.confirm(`Slot ${id} の画像・音声・名前を削除しますか？`)) return;
   ++imageUploadVersion;
+  ++audioUploadVersion;
   videoFrameSelection = null;
   store.clear(id);
   feedback.textContent = `Slot ${id}を未設定に戻しました。`;

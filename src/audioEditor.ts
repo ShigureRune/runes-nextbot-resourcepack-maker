@@ -54,9 +54,9 @@ export function waveformPeaks(samples: Float32Array, columns: number): number[] 
   return result;
 }
 
-export async function decodeAudio(source: Blob): Promise<AudioBuffer> {
-  if (source.size === 0 || source.size > MAX_AUDIO_BYTES) {
-    throw new Error('音声ファイルは20MiB以下にしてください。');
+export async function decodeAudio(source: Blob, maxBytes = MAX_AUDIO_BYTES): Promise<AudioBuffer> {
+  if (source.size === 0 || source.size > maxBytes) {
+    throw new Error('音声ファイルの容量が上限を超えています。');
   }
   const context = new AudioContext();
   try {
@@ -112,4 +112,79 @@ export async function encodeVorbisRange(
   } finally {
     encoder.free();
   }
+}
+
+
+/** Decode only the audio track of a video, using native decoding first and
+ * container demuxing + WebCodecs when the browser cannot decode the file directly. */
+export async function decodeVideoAudio(source: Blob): Promise<AudioBuffer> {
+  const maxBytes = 32 * 1024 * 1024;
+  if (source.size < 1 || source.size > maxBytes) throw new Error('動画は32MiB以下にしてください。');
+  try {
+    return await decodeAudio(source, maxBytes);
+  } catch (error) {
+    if (error instanceof Error && /120秒|モノラル/.test(error.message)) throw error;
+  }
+  const { Input, BlobSource, ALL_FORMATS, AudioBufferSink } = await import('mediabunny');
+  const input = new Input({ source: new BlobSource(source), formats: ALL_FORMATS });
+  try {
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) throw new Error('この動画には音声トラックがありません。');
+    const duration = await track.computeDuration();
+    if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_AUDIO_SECONDS + 0.001) {
+      throw new Error('動画の音声は120秒以内にしてください。');
+    }
+    const sink = new AudioBufferSink(track);
+    let result: AudioBuffer | null = null;
+    for await (const { buffer, timestamp } of sink.buffers(0, MAX_AUDIO_SECONDS)) {
+      if (buffer.numberOfChannels < 1 || buffer.numberOfChannels > 2 || buffer.sampleRate > 96000) {
+        throw new Error('96kHz以下のモノラル・ステレオ音声に対応しています。');
+      }
+      if (!result) {
+        result = new AudioBuffer({ length: Math.max(1, Math.ceil(Math.min(duration, MAX_AUDIO_SECONDS) * buffer.sampleRate)), sampleRate: buffer.sampleRate, numberOfChannels: buffer.numberOfChannels });
+      }
+      if (buffer.sampleRate !== result.sampleRate || buffer.numberOfChannels !== result.numberOfChannels) {
+        throw new Error('途中で音声形式が変化する動画には対応していません。');
+      }
+      const offset = Math.round(timestamp * result.sampleRate);
+      const from = Math.max(0, -offset);
+      const to = Math.min(buffer.length, result.length - offset);
+      if (to <= from) continue;
+      for (let ch = 0; ch < result.numberOfChannels; ch++) {
+        result.getChannelData(ch).set(buffer.getChannelData(ch).subarray(from, to), Math.max(0, offset));
+      }
+    }
+    if (!result) throw new Error('動画に再生可能な音声がありません。');
+    return result;
+  } catch (error) {
+    if (error instanceof Error && /音声トラック|120秒|モノラル|音声形式|再生可能/.test(error.message)) throw error;
+    throw new Error('動画音声をデコードできません。MP4（AAC）などブラウザ対応の形式をお試しください。');
+  } finally {
+    input.dispose();
+  }
+}
+
+/** A portable PCM preview; the original video stays unchanged. */
+export function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const channels = buffer.numberOfChannels;
+  const bytes = buffer.length * channels * 2;
+  const data = new ArrayBuffer(44 + bytes);
+  const view = new DataView(data);
+  const tag = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  tag(0, 'RIFF'); view.setUint32(4, 36 + bytes, true); tag(8, 'WAVE');
+  tag(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true); view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true);
+  tag(36, 'data'); view.setUint32(40, bytes, true);
+  const samples = Array.from({ length: channels }, (_, i) => buffer.getChannelData(i));
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < channels; ch++) {
+      const value = Math.max(-1, Math.min(1, samples[ch][i]));
+      view.setInt16(44 + (i * channels + ch) * 2, Math.round(value * (value < 0 ? 32768 : 32767)), true);
+    }
+  }
+  return new Blob([data], { type: 'audio/wav' });
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sampleRange, waveformPeaks, MAX_AUDIO_SECONDS, normalizeDistortionAmount, distortSamples } from '../src/audioEditor.ts';
+import { sampleRange, waveformPeaks, MAX_AUDIO_SECONDS, normalizeDistortionAmount, distortSamples, audioBufferToWav } from '../src/audioEditor.ts';
 
 test('audio sample range converts seconds to frame boundaries', () => {
   assert.deepEqual(sampleRange({ start: 0.25, end: 1.5 }, 2, 48000), { first: 12000, last: 72000 });
@@ -32,4 +32,20 @@ test('sound distortion normalizes strength and hard-clips a copied PCM buffer', 
   assert.equal(crushed[4], -1);
   assert.ok(crushed[1] > source[1]);
   assert.ok(Math.abs(source[3] - 0.9) < 1e-6);
+});
+
+test('video audio preview writes valid interleaved PCM WAV', async () => {
+  const left = new Float32Array([-1, 0.5]), right = new Float32Array([1, 0]);
+  const wav = audioBufferToWav({ numberOfChannels: 2, sampleRate: 48000, length: 2, getChannelData: (i: number) => i ? right : left } as AudioBuffer);
+  const bytes = await wav.arrayBuffer();
+  const data = new DataView(bytes);
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 4)), 'RIFF');
+  assert.equal(new TextDecoder().decode(bytes.slice(8, 12)), 'WAVE');
+  assert.equal(data.getUint16(22, true), 2);
+  assert.equal(data.getUint32(24, true), 48000);
+  assert.equal(data.getUint32(40, true), 8);
+  assert.equal(data.getInt16(44, true), -32768);
+  assert.equal(data.getInt16(46, true), 32767);
+  assert.equal(data.getInt16(48, true), 16384);
+  assert.equal(data.getInt16(50, true), 0);
 });

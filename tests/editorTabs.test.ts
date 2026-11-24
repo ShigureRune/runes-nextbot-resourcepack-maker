@@ -55,15 +55,19 @@ test('editor exposes only image and audio tabs while name remains separate', () 
   assert.ok(!editor.includes('id="editor-btn-basic"'));
   assert.ok(!editor.includes('id="editor-btn-video"'));
   assert.ok(editor.includes('class="name-settings"'));
-  for(const id of ['slot','bot-name','image','sound','source-canvas','gif-live-canvas','audio-waveform','video-preview','clear-slot','save-state','feedback']){
+  for(const id of ['slot','bot-name','image','image-video','sound','sound-video','video-to-audio','use-image-video','source-canvas','gif-live-canvas','audio-waveform','video-preview','clear-slot','save-state','feedback']){
     assert.equal(editor.split('id="'+id+'"').length-1,1,'missing or duplicated '+id);
   }
   const imageTab=editor.slice(editor.indexOf('id="editor-tab-image"'),editor.indexOf('id="editor-tab-audio"'));
   assert.ok(imageTab.includes('id="image"'));
+  assert.ok(imageTab.includes('id="image-video"'));
+  assert.match(imageTab, /id="image"[^>]*accept="\.png,\.gif,image\/png,image\/gif"/);
   assert.ok(imageTab.includes('id="video-editor"'));
   assert.ok(imageTab.includes('id="image-editor"'));
   const audioTab=editor.slice(editor.indexOf('id="editor-tab-audio"'));
   assert.ok(audioTab.includes('id="sound"'));
+  assert.ok(audioTab.includes('id="sound-video"'));
+  assert.ok(audioTab.includes('id="use-image-video"'));
   assert.ok(audioTab.includes('id="audio-editor"'));
   assert.ok(source.includes("const editorTabs = ['image', 'audio'] as const"));
   assert.ok(source.includes("activateEditorTab('image', true)"));
