@@ -4,6 +4,26 @@ import { isOggVorbis } from './assetValidation.ts';
 export const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 export const MAX_AUDIO_SECONDS = 120;
 
+export function normalizeDistortionAmount(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 0;
+}
+
+/** Copy a PCM chunk and add deliberate hard clipping without mutating the source. */
+export function distortSamples(samples: Float32Array, amount: number): Float32Array {
+  const normalized = normalizeDistortionAmount(amount);
+  const output = new Float32Array(samples.length);
+  if (normalized === 0) {
+    output.set(samples);
+    return output;
+  }
+  const drive = 1 + normalized * 0.18;
+  for (let i = 0; i < samples.length; i++) {
+    output[i] = Math.max(-1, Math.min(1, samples[i] * drive));
+  }
+  return output;
+}
+
 export interface AudioRange { start: number; end: number; }
 export function sampleRange(range: AudioRange, duration: number, sampleRate: number): { first: number; last: number } {
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || !Number.isFinite(duration) ||
@@ -59,8 +79,10 @@ export async function decodeAudio(source: Blob): Promise<AudioBuffer> {
 /** Real Vorbis encoding (not renaming audio to .ogg). Never changes the source Blob. */
 export async function encodeVorbisRange(
   decoded: AudioBuffer, range: AudioRange, onProgress?: (fraction: number) => void,
+  distortionAmount = 0,
 ): Promise<Blob> {
   const { first, last } = sampleRange(range, decoded.duration, decoded.sampleRate);
+  const distortion = normalizeDistortionAmount(distortionAmount);
   const { default: ogg } = await import('@audio/encode-ogg');
   const encoder = await ogg({ sampleRate: decoded.sampleRate, channels: decoded.numberOfChannels, quality: 4 });
   const pages: ArrayBuffer[] = [];
@@ -75,8 +97,10 @@ export async function encodeVorbisRange(
     const step = 4096;
     for (let offset = first; offset < last; offset += step) {
       const end = Math.min(last, offset + step);
-      const channels = Array.from({ length: decoded.numberOfChannels },
-        (_, index) => decoded.getChannelData(index).subarray(offset, end));
+      const channels = Array.from({ length: decoded.numberOfChannels }, (_, index) => {
+        const samples = decoded.getChannelData(index).subarray(offset, end);
+        return distortion > 0 ? distortSamples(samples, distortion) : samples;
+      });
       append(encoder.encode(channels));
       if ((offset - first) % (step * 16) === 0) onProgress?.((offset - first) / (last - first));
     }

@@ -1,5 +1,6 @@
 import { parseGIF, decompressFrames } from 'gifuct-js';
 import { processPng } from './imageEditor.ts';
+import { applyGamingFramePng } from './visualEffects.ts';
 import type { ImageEditSettings } from './imageEditor.ts';
 
 export const MAX_GIF_BYTES = 8 * 1024 * 1024;
@@ -48,6 +49,7 @@ export async function processGif(
   source: Blob, settings: ImageEditSettings, range: GifFrameRange,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
+  gaming = false,
 ): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
   const checkCanceled = () => {
     if (signal?.aborted) throw new DOMException('GIFの処理をキャンセルしました。', 'AbortError');
@@ -87,13 +89,15 @@ export async function processGif(
     if (index + 1 >= range.first && index + 1 <= range.last) {
       const bitmap = await createImageBitmap(composed);
       try {
-        const processed = await processPng(bitmap, settings);
+        const frameIndex = index + 1 - range.first;
+        let processed = await processPng(bitmap, settings);
+        checkCanceled();
+        if (gaming) processed = await applyGamingFramePng(processed, frameIndex / count);
         checkCanceled();
         if (!poster) poster = processed;
         const outputFrame = await createImageBitmap(processed);
         try {
           checkCanceled();
-          const frameIndex = index + 1 - range.first;
           spriteCtx.drawImage(outputFrame, 0, frameIndex * resolution);
           timings.push({ index: frameIndex, time: frameTicks(frame.delay) });
         } finally { outputFrame.close(); }

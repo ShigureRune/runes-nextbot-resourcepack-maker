@@ -11,8 +11,10 @@ export interface VisualAsset {
   readonly sourceName: string;
   readonly sourceFormat: 'png' | 'gif' | 'video';
   readonly source: Blob;
-  /** Per-GIF speed saved with the slot, 1 by default. Applied during asset ZIP export. */
+  /** Per-animation speed saved with the slot, 1 by default. Applied during asset ZIP export. */
   readonly animationSpeed?: number;
+  /** When true, the prepared texture is a rainbow-cycling animation. */
+  readonly gaming?: boolean;
   /** Null until a usable Minecraft texture is successfully prepared. */
   readonly processed: { readonly png: Blob; readonly animationMcmeta?: string; readonly previewPng?: Blob } | null;
 }
@@ -21,6 +23,8 @@ export interface AudioAsset {
   readonly sourceName: string;
   readonly sourceFormat: 'ogg' | 'mp3' | 'video';
   readonly source: Blob;
+  /** 0 = off, 100 = strongest hard-clipping effect. */
+  readonly distortion?: number;
   /** Null until an OGG Vorbis sound is successfully prepared. */
   readonly processed: { readonly ogg: Blob } | null;
 }

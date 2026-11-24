@@ -6,10 +6,11 @@ import { mountInventory } from './inventory';
 import { loadSlots, saveSlots } from './persistence';
 import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } from './imageEditor';
 import type { ImageEditSettings } from './imageEditor';
-import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
+import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange, normalizeDistortionAmount } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
 import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
+import { createGamingAnimation } from './visualEffects';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
 import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
@@ -91,7 +92,9 @@ app.innerHTML = `
         <label>許容範囲<input id="key-tolerance" type="range" min="0" max="255" value="45"></label>
         <label>境界のぼかし<input id="key-feather" type="range" min="0" max="100" value="20"></label>
         <label>出力サイズ<select id="image-resolution"><option value="256">256×256</option><option value="128">128×128</option></select></label>
+        <label class="effect-toggle">🌈 ゲーミングエフェクト<input id="gaming-enabled" type="checkbox"></label>
       </div>
+      <p class="effect-note">ゲーミングをONにすると色が虹色に循環します。PNGや動画から切り出した静止画も、自動で12フレームのアニメーション素材として保存されます。</p>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
         <div class="fields">
@@ -152,7 +155,9 @@ app.innerHTML = `
       <div class="fields">
         <label>開始位置（秒）<input id="audio-start" type="number" min="0" step="0.01" value="0"></label>
         <label>終了位置（秒）<input id="audio-end" type="number" min="0" step="0.01" value="0"></label>
+        <label>🔊 音割れ強度 <span id="audio-distortion-value">0（OFF）</span><input id="audio-distortion" type="range" min="0" max="100" step="5" value="0"></label>
       </div>
+      <p class="effect-note">音割れは元音声を残したまま、OGG保存時にクリッピング加工します。0でOFF、100で最大です。</p>
       <p id="audio-range-status" class="note" role="status"></p>
       <div class="editor-actions">
         <button id="play-audio-range" type="button" class="secondary-button">指定範囲を試聴</button>
@@ -243,6 +248,8 @@ const audioEnd = get<HTMLInputElement>('audio-end');
 const audioRangeStatus = get<HTMLElement>('audio-range-status');
 const audioWaveform = get<HTMLCanvasElement>('audio-waveform');
 const audioApplyButton = get<HTMLButtonElement>('apply-audio');
+const audioDistortion = get<HTMLInputElement>('audio-distortion');
+const audioDistortionValue = get<HTMLSpanElement>('audio-distortion-value');
 let audioPreviewUrl: string | null = null;
 let audioPreviewBlob: Blob | null = null;
 let audioDecoded: AudioBuffer | null = null;
@@ -274,6 +281,9 @@ function drawAudioWaveform(): void {
 }
 function renderAudioEditor(id: number): void {
   const slot = store.get(id);
+  const amount = normalizeDistortionAmount(slot.audio?.distortion);
+  audioDistortion.value = String(amount);
+  audioDistortionValue.textContent = amount === 0 ? '0（OFF）' : amount + '%';
   const blob = slot.audio?.processed?.ogg ?? slot.audio?.source ?? null;
   audioEditor.hidden = !blob;
   if (blob === audioPreviewBlob) return;
@@ -311,6 +321,24 @@ audioPreview.addEventListener('loadedmetadata', () => {
   drawAudioWaveform();
 });
 for (const field of [audioStart, audioEnd]) field.addEventListener('input', drawAudioWaveform);
+audioDistortion.addEventListener('input', () => {
+  const amount = normalizeDistortionAmount(audioDistortion.value);
+  audioDistortionValue.textContent = amount === 0 ? '0（OFF）' : amount + '%';
+});
+audioDistortion.addEventListener('change', () => {
+  const id = currentSlot();
+  const asset = store.get(id).audio;
+  if (!asset) return;
+  const amount = normalizeDistortionAmount(audioDistortion.value);
+  if (normalizeDistortionAmount(asset.distortion) === amount) return;
+  const processed = amount === 0 && asset.sourceFormat === 'ogg' ? { ogg: asset.source } : null;
+  store.update(id, { audio: { ...asset, distortion: amount, processed } });
+  audioRangeStatus.textContent = amount === 0
+    ? '音割れをOFFにしました。'
+    : `音割れ ${amount}% を設定しました。「切り抜いてOGG保存」で適用してください。`;
+  render();
+  queueSave();
+});
 audioPreview.addEventListener('timeupdate', () => {
   if (rangePlayback && audioPreview.currentTime >= Number(audioEnd.value)) stopAudioPreview();
 });
@@ -347,13 +375,14 @@ audioApplyButton.addEventListener('click', async () => {
     const end = requestedEnd > decoded.duration && requestedEnd - decoded.duration < 0.1
       ? decoded.duration : requestedEnd;
     sampleRange({ start, end }, decoded.duration, decoded.sampleRate);
-    audioRangeStatus.textContent = '本物のOGG Vorbisに変換中…';
+    const distortion = normalizeDistortionAmount(audioDistortion.value);
+    audioRangeStatus.textContent = distortion > 0 ? `音割れ ${distortion}% をかけてOGG Vorbisに変換中…` : '本物のOGG Vorbisに変換中…';
     const ogg = await encodeVorbisRange(decoded, { start, end }, fraction => {
       if (currentSlot() === id) audioRangeStatus.textContent =
-        'OGG Vorbisに変換中… ' + Math.round(fraction * 100) + '%';
-    });
+        (distortion > 0 ? `音割れ ${distortion}% ＋ OGG変換中… ` : 'OGG Vorbisに変換中… ') + Math.round(fraction * 100) + '%';
+    }, distortion);
     if (store.get(id).audio !== audio) return; // Source was removed or replaced while encoding.
-    store.update(id, { audio: { ...audio, processed: { ogg } } });
+    store.update(id, { audio: { ...audio, distortion, processed: { ogg } } });
     if (currentSlot() === id) {
       render();
       audioRangeStatus.textContent = 'OGG Vorbisを保存しました（' + ogg.size.toLocaleString() + ' bytes）。';
@@ -478,6 +507,7 @@ const preview = get<HTMLImageElement>('preview');
 const imageEditorPanel = get<HTMLElement>('image-editor');
 const sourceCanvas = get<HTMLCanvasElement>('source-canvas');
 const processedPreview = get<HTMLCanvasElement>('processed-preview');
+const gamingEnabled = get<HTMLInputElement>('gaming-enabled');
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
 let previewVersion = 0;
 const cropInfo = get<HTMLElement>('crop-info');
@@ -534,7 +564,8 @@ function scheduleGifPreview(): void {
     return;
   }
   const settings = imageSettings();
-  const key = JSON.stringify({ range, settings });
+  const gaming = gamingEnabled.checked;
+  const key = JSON.stringify({ range, settings, gaming });
   if (gifPreviewKey === key) return;
   clearGifPreview();
   gifPreviewKey = key;
@@ -547,7 +578,7 @@ function scheduleGifPreview(): void {
     gifPreviewTimer = null;
     try {
       // Exact same compositing, cropping, keying and Minecraft tick timing as GIF export.
-      const result = await processGif(source, settings, range, undefined, controller.signal);
+      const result = await processGif(source, settings, range, undefined, controller.signal, gaming);
       if (controller.signal.aborted || version !== gifPreviewVersion ||
           currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
           store.get(id).visual?.source !== source) return;
@@ -608,6 +639,7 @@ function schedulePreview(): void {
   clearTimeout(previewTimer);
   const version = ++previewVersion;
   const bitmap = activeBitmap;
+  processedPreview.classList.toggle('gaming-preview', gamingEnabled.checked);
   if (!bitmap) return;
   scheduleGifPreview();
   previewTimer = setTimeout(async () => {
@@ -632,6 +664,8 @@ async function renderImageEditor(id: number): Promise<void> {
     return;
   }
   const slot = store.get(id);
+  gamingEnabled.checked = Boolean(slot.visual?.gaming);
+  processedPreview.classList.toggle('gaming-preview', gamingEnabled.checked);
   // Restore the selected slot's saved speed (including after reload/copy/move).
   const savedSpeed = normalizeGifSpeed(slot.visual?.animationSpeed);
   gifLiveSpeed.value = String(savedSpeed);
@@ -686,6 +720,20 @@ for (const id of cropFields) get<HTMLInputElement>(id).addEventListener('input',
 for (const id of ['key-enabled', 'key-color', 'key-tolerance', 'key-feather', 'image-resolution']) {
   get<HTMLInputElement>(id).addEventListener('input', schedulePreview);
 }
+gamingEnabled.addEventListener('change', () => {
+  const id = currentSlot();
+  const visual = store.get(id).visual;
+  if (!visual) return;
+  const gaming = gamingEnabled.checked;
+  store.update(id, { visual: { ...visual, gaming, processed: null } });
+  processedPreview.classList.toggle('gaming-preview', gaming);
+  imageEditStatus.textContent = gaming
+    ? '🌈 ゲーミングON：適用すると静止画も12フレームのアニメーションになります。'
+    : 'ゲーミングをOFFにしました。画像編集を適用して保存してください。';
+  render();
+  queueSave();
+  schedulePreview();
+});
 function canvasPosition(event: PointerEvent): { x: number; y: number } {
   const rect = sourceCanvas.getBoundingClientRect();
   return {
@@ -737,8 +785,8 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
         first: Number(get<HTMLInputElement>('gif-start').value),
         last: Number(get<HTMLInputElement>('gif-end').value),
       }, fraction => {
-        if (currentSlot() === id) imageEditStatus.textContent = 'GIF変換中…' + Math.round(fraction * 100) + '%';
-      });
+        if (currentSlot() === id) imageEditStatus.textContent = (visual.gaming ? 'ゲーミングGIF変換中…' : 'GIF変換中…') + Math.round(fraction * 100) + '%';
+      }, undefined, Boolean(visual.gaming));
       if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: {
         png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
@@ -748,9 +796,20 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
     } else {
       const png = await processPng(bitmap, imageSettings());
       if (!unchanged()) return;
-      store.update(id, { visual: { ...visual, processed: { png } } });
-      render(); queueSave();
-      imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
+      if (visual.gaming) {
+        imageEditStatus.textContent = '🌈 ゲーミングアニメーションを生成中…';
+        const result = await createGamingAnimation(png);
+        if (!unchanged()) return;
+        store.update(id, { visual: { ...visual, processed: {
+          png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+        } } });
+        render(); queueSave();
+        imageEditStatus.textContent = `🌈 静止画をゲーミング${result.frameCount}フレームのアニメーション素材として登録しました。`;
+      } else {
+        store.update(id, { visual: { ...visual, processed: { png } } });
+        render(); queueSave();
+        imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
+      }
     }
   } catch (error) {
     imageEditStatus.textContent = error instanceof Error ? error.message : '画像処理に失敗しました。';
@@ -890,8 +949,15 @@ function render(): void {
   soundInput.value = '';
   slotState.textContent = `Slot ${String(slot.id).padStart(2, '0')}：${statusLabels[state]}`;
   slotState.dataset.state = state;
-  imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${slot.visual?.sourceFormat === 'video' ? (slot.visual.processed ? '（静止画処理済み）' : '（フレーム編集待ち）') : ''}`;
-  soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${slot.audio?.sourceFormat === 'mp3' ? (slot.audio.processed ? '（OGG変換済み）' : '（未変換）') : ''}`;
+  const visualNotes: string[] = [];
+  if (slot.visual?.sourceFormat === 'video') visualNotes.push(slot.visual.processed ? '静止画処理済み' : 'フレーム編集待ち');
+  if (slot.visual?.gaming) visualNotes.push(slot.visual.processed?.animationMcmeta ? '🌈ゲーミングアニメ' : '🌈ゲーミング未適用');
+  imageName.textContent = `画像：${slot.visual?.sourceName ?? '未登録'}${visualNotes.length ? '（' + visualNotes.join('・') + '）' : ''}`;
+  const distortion = normalizeDistortionAmount(slot.audio?.distortion);
+  const soundNotes: string[] = [];
+  if (slot.audio?.sourceFormat === 'mp3') soundNotes.push(slot.audio.processed ? 'OGG変換済み' : '未変換');
+  if (distortion > 0) soundNotes.push(slot.audio?.processed ? `音割れ${distortion}%` : `音割れ${distortion}%未適用`);
+  soundName.textContent = `音声：${slot.audio?.sourceName ?? '未登録'}${soundNotes.length ? '（' + soundNotes.join('・') + '）' : ''}`;
   refreshEditorGuide();
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
   get<HTMLButtonElement>('download').disabled = !summary.canExport;
@@ -973,7 +1039,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'video', source: file, processed: null,
+        sourceName: file.name, sourceFormat: 'video', source: file, gaming: false, processed: null,
       } });
       if (currentSlot() === id) feedback.textContent =
         `Slot ${id}に動画（${info.duration.toFixed(1)}秒）を登録しました。好きなフレームを取り込んでください。`;
@@ -982,7 +1048,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'gif', source: file, processed: null,
+        sourceName: file.name, sourceFormat: 'gif', source: file, gaming: false, processed: null,
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にGIF（${info.count}フレーム）を登録しました。`;
     } else {
@@ -999,7 +1065,7 @@ imageInput.addEventListener('change', async () => {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'png', source: file, processed: { png: file },
+        sourceName: file.name, sourceFormat: 'png', source: file, gaming: false, processed: { png: file },
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}にPNGを登録しました。`;
     }
@@ -1036,6 +1102,7 @@ soundInput.addEventListener('change', async () => {
         sourceName: file.name,
         sourceFormat: isOgg ? 'ogg' : 'mp3',
         source: file,
+        distortion: 0,
         processed: isOgg ? { ogg: file } : null,
       },
     });

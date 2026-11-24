@@ -170,3 +170,12 @@ box-shadow:3px 3px 0 #333;font-weight:850}
   .editor-tab-button{min-height:45px;font-size:.82rem}
   .editor-tab-panel{padding:9px;scroll-margin-top:140px}
 }
+
+
+/* Optional creator effects: rainbow animation preview and deliberate audio clipping controls. */
+.effect-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:54px;padding:8px 10px;background:#d7d7d7;border:3px solid;border-color:#777 #eee #eee #777}
+.effect-toggle input{flex:0 0 auto;margin:0}
+.effect-note{margin:10px 0 14px;padding:8px 10px;background:#c7c7c7;border-left:4px solid #7156a8;font-size:.84rem;line-height:1.55}
+#processed-preview.gaming-preview{animation:gaming-preview-hue 1.2s linear infinite;filter:saturate(1.25)}
+@keyframes gaming-preview-hue{from{filter:hue-rotate(0deg) saturate(1.25)}to{filter:hue-rotate(360deg) saturate(1.25)}}
+@media(prefers-reduced-motion:reduce){#processed-preview.gaming-preview{animation:none;filter:hue-rotate(120deg) saturate(1.25)}}

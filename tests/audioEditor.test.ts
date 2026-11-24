@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sampleRange, waveformPeaks, MAX_AUDIO_SECONDS } from '../src/audioEditor.ts';
+import { sampleRange, waveformPeaks, MAX_AUDIO_SECONDS, normalizeDistortionAmount, distortSamples } from '../src/audioEditor.ts';
 
 test('audio sample range converts seconds to frame boundaries', () => {
   assert.deepEqual(sampleRange({ start: 0.25, end: 1.5 }, 2, 48000), { first: 12000, last: 72000 });
@@ -15,4 +15,21 @@ test('invalid, reversed and out-of-bounds audio ranges are rejected', () => {
 test('waveform peaks are bounded, per-column magnitudes', () => {
   assert.deepEqual(waveformPeaks(new Float32Array([0, -0.5, 0.25, 1, 0.1, -0.1]), 3).map(x => Number(x.toFixed(2))), [0.5, 1, 0.1]);
   assert.deepEqual(waveformPeaks(new Float32Array([]), 2), [0, 0]);
+});
+
+
+test('sound distortion normalizes strength and hard-clips a copied PCM buffer', () => {
+  assert.equal(normalizeDistortionAmount(-20), 0);
+  assert.equal(normalizeDistortionAmount(54.6), 55);
+  assert.equal(normalizeDistortionAmount(500), 100);
+  assert.equal(normalizeDistortionAmount('25'), 25);
+  const source = new Float32Array([0.02, 0.2, -0.2, 0.9, -0.9]);
+  const clean = distortSamples(source, 0);
+  assert.deepEqual([...clean], [...source]);
+  assert.notEqual(clean, source);
+  const crushed = distortSamples(source, 100);
+  assert.equal(crushed[3], 1);
+  assert.equal(crushed[4], -1);
+  assert.ok(crushed[1] > source[1]);
+  assert.equal(source[3], 0.9);
 });
