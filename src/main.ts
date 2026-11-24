@@ -8,6 +8,7 @@ import { cropBounds, defaultImageSettings, fitImagePng, loadPng, processPng, sam
 import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange, normalizeDistortionAmount, decodeVideoAudio, audioBufferToWav } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
+import { buildLightweightResourcePack } from './lightweightPack';
 import { inspectGif, processGif, validFrameRange } from './gifEditor';
 import { GifPreviewPlayer, previewTicksFromMcmeta, normalizeGifSpeed } from './gifPlayback';
 import {
@@ -26,7 +27,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / CROSS-GLINT-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a><button id="reload-latest" class="mod-shortcut" type="button" title="ページのキャッシュを避けて最新版を読み込む">↻ 最新版を読み込む</button></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / LIGHTPACK-01</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a><button id="reload-latest" class="mod-shortcut" type="button" title="ページのキャッシュを避けて最新版を読み込む">↻ 最新版を読み込む</button></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -209,8 +210,17 @@ app.innerHTML = `
   <section class="panel"><h2>99枠の集計</h2>
     <p id="summary" aria-live="polite"></p>
     <p id="export-state" class="note"></p>
-    <button id="download" type="button" disabled>完成枠を素材ZIPに保存（MOD未対応）</button>
-    <p class="warning">素材ZIPはバックアップ・受け渡し用で、Minecraftのリソースパックではありません。MODの正確な仕様が未確認のため、ゲーム用パックの出力はまだできません。</p>
+    <button id="download" type="button" disabled>従来の素材ZIPを保存（アニメーションPNGあり）</button>
+    <p class="note">従来の素材ZIPは編集済みアニメーションと音声の保管用。Minecraftに直接導入するリソースパックではありません。</p>
+    <hr />
+    <h3>📦 軽量MOD連携リソースパック（試作仕様）</h3>
+    <label>対象Minecraftのリソースパック形式（pack_format）
+      <input id="pack-format" type="number" min="1" max="1000" step="1" value="34" inputmode="numeric">
+    </label>
+    <p class="note">初期値34＝Java版1.21〜1.21.1用。他のバージョンなら形式番号を変更してください。元画像1枚＋OGG音声＋JSON設定を保存し、ゲーミング／エンチャントの24フレーム画像を含めません。</p>
+    <button id="download-lite" type="button" disabled>🌱 軽量リソースパックZIPを保存</button>
+    <p id="lite-export-state" class="note" role="status" aria-live="polite"></p>
+    <p class="warning">この軽量ZIPはMinecraftのリソースパック構造ですが、Nextbot定義JSONは将来のMOD向け独自仕様です。MOD本体が対応するまではNextbot追加・虹色描画は動作しません。GIF／動画は選択範囲の最初のフレームを静止画として収録します。古いアニメ素材は画像編集を再適用してください。</p>
   </section>
   <section id="mod-download" class="panel mod-download-panel" aria-label="Rune's Nextbot MODの配布情報">
     <h2>Rune's Nextbot MODを入手</h2>
@@ -221,7 +231,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / CROSS-GLINT-02</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / LIGHTPACK-01</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -994,7 +1004,7 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
       }, undefined, normalizeVisualEffects(visual.effects, Boolean(visual.gaming)));
       if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: {
-        png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+        png: result.png, previewPng: result.previewPng, basePng: result.basePng, animationMcmeta: result.animationMcmeta,
       } } });
       render(); queueSave();
       imageEditStatus.textContent = `動画から${result.frameCount}フレームのアニメーション素材を登録しました。`;
@@ -1010,7 +1020,7 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
       }, undefined, normalizeVisualEffects(visual.effects, Boolean(visual.gaming)));
       if (!unchanged()) return;
       store.update(id, { visual: { ...visual, processed: {
-        png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+        png: result.png, previewPng: result.previewPng, basePng: result.basePng, animationMcmeta: result.animationMcmeta,
       } } });
       render(); queueSave();
       imageEditStatus.textContent = `GIF ${result.frameCount}フレームのアニメーションPNGを登録しました。`;
@@ -1023,12 +1033,12 @@ get<HTMLButtonElement>('apply-image').addEventListener('click', async () => {
         const result = await createVisualEffectAnimation(png, effects);
         if (!unchanged()) return;
         store.update(id, { visual: { ...visual, effects, gaming: effects.gamingMode !== 'off', processed: {
-          png: result.png, previewPng: result.previewPng, animationMcmeta: result.animationMcmeta,
+          png: result.png, previewPng: result.previewPng, basePng: png, animationMcmeta: result.animationMcmeta,
         } } });
         render(); queueSave();
         imageEditStatus.textContent = `${effectSummary(effects)}：静止画を${result.frameCount}フレームのアニメーション素材として登録しました。`;
       } else {
-        store.update(id, { visual: { ...visual, processed: { png } } });
+        store.update(id, { visual: { ...visual, processed: { png, basePng: png } } });
         render(); queueSave();
         imageEditStatus.textContent = `編集済みPNGを登録しました（${png.size.toLocaleString()} bytes）。`;
       }
@@ -1275,6 +1285,7 @@ function render(): void {
   refreshEditorGuide();
   summaryLabel.textContent = `完成 ${summary.complete}枠 ／ 設定途中 ${summary.partial}枠 ／ 未設定 ${summary.empty}枠`;
   get<HTMLButtonElement>('download').disabled = !summary.canExport;
+  get<HTMLButtonElement>('download-lite').disabled = !summary.canExport;
   exportState.textContent = summary.canExport
     ? '完成枠をまとめて素材ZIPに保存できます（MOD用の完成リソースパックではありません）。'
     : summary.partial > 0
@@ -1337,6 +1348,40 @@ get<HTMLButtonElement>('download').addEventListener('click', async () => {
     exportState.textContent = '素材ZIPを生成しました。Minecraft用リソースパックではありません。';
   } catch (error) {
     exportState.textContent = 'ZIP生成失敗：' + (error instanceof Error ? error.message : '不明なエラー');
+  } finally {
+    button.disabled = !store.summary().canExport;
+  }
+});
+
+// The ZIP has a real Minecraft Java pack layout. Custom Nextbot JSON support
+// is a future MOD feature; downloading alone does not install or activate it.
+get<HTMLButtonElement>('download-lite').addEventListener('click', async () => {
+  const button = get<HTMLButtonElement>('download-lite');
+  const status = get<HTMLElement>('lite-export-state');
+  if (!store.summary().canExport || button.disabled) return;
+  button.disabled = true;
+  status.textContent = '軽量リソースパックを検証・生成中…';
+  try {
+    const raw = get<HTMLInputElement>('pack-format').value.trim();
+    const packFormat = raw === '' ? NaN : Number(raw);
+    if (!Number.isSafeInteger(packFormat) || packFormat < 1 || packFormat > 1000) {
+      throw new RangeError('pack_formatは1〜1000の整数を指定してください。');
+    }
+    const zip = await buildLightweightResourcePack(store.list(), packFormat);
+    const url = URL.createObjectURL(zip);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'runes-nextbot-lightweight-pack.zip';
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    status.textContent = '軽量ZIPを生成しました！ Minecraft用のパック構造です。ただしNextbot用JSONの解釈は将来のMOD対応待ちです。';
+  } catch (error) {
+    status.textContent = '軽量ZIP生成失敗：' + (error instanceof Error ? error.message : '不明なエラー');
   } finally {
     button.disabled = !store.summary().canExport;
   }
@@ -1528,7 +1573,7 @@ async function registerVisual(file: File): Promise<void> {
       if (version !== imageUploadVersion || store.get(id).visual !== previous) return;
       if (currentSlot() === id) videoFrameSelection = null;
       store.update(id, { visual: {
-        sourceName: file.name, sourceFormat: 'png', source, gaming: false, effects: defaultVisualEffectSettings(), processed: { png },
+        sourceName: file.name, sourceFormat: 'png', source, gaming: false, effects: defaultVisualEffectSettings(), processed: { png, basePng: png },
       } });
       if (currentSlot() === id) feedback.textContent = `Slot ${id}に256×256のPNGを登録しました。元画像から切り抜き・再編集できます。`;
     }
