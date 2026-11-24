@@ -156,7 +156,7 @@ export async function processVideoAnimation(
   source: Blob, settings: ImageEditSettings, range: VideoAnimationRange,
   onProgress?: (fraction: number) => void, signal?: AbortSignal,
   effects: VisualEffectSettings = defaultVisualEffectSettings(),
-): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
+): Promise<{ png: Blob; previewPng: Blob; basePng: Blob; animationMcmeta: string; frameCount: number }> {
   checkVideoAbort(signal);
   if (source.size < 1 || source.size > MAX_VIDEO_BYTES) throw new Error('動画は32MiB以下にしてください。');
   const video = document.createElement('video');
@@ -191,6 +191,7 @@ export async function processVideoAnimation(
     const ctx = sprite.getContext('2d');
     if (!ctx) throw new Error('Canvas 2Dが使えません。');
     let poster: Blob | null = null;
+    let basePng: Blob | null = null;
     for (let index = 0; index < plan.length; index++) {
       checkVideoAbort(signal);
       const still = await captureVideoFrame(video, plan[index].time);
@@ -199,6 +200,7 @@ export async function processVideoAnimation(
       let png: Blob;
       try { png = await processPng(bitmap, settings); } finally { bitmap.close(); }
       checkVideoAbort(signal);
+      if (!basePng) basePng = png;
       if (hasAnimatedVisualEffects(effects)) png = await applyVisualEffectsFramePng(png, index / plan.length, effects);
       if (!poster) poster = png;
       const output = await createImageBitmap(png);
@@ -208,13 +210,13 @@ export async function processVideoAnimation(
       } finally { output.close(); }
       onProgress?.((index + 1) / plan.length);
     }
-    if (!poster) throw new Error('動画フレームを取得できませんでした。');
+    if (!poster || !basePng) throw new Error('動画フレームを取得できませんでした。');
     const png = await new Promise<Blob>((resolve, reject) => {
       sprite.toBlob(blob => blob ? resolve(blob) : reject(new Error('アニメーションPNGを生成できません。')), 'image/png');
     });
     checkVideoAbort(signal);
     return {
-      png, previewPng: poster, frameCount: plan.length,
+      png, previewPng: poster, basePng, frameCount: plan.length,
       animationMcmeta: JSON.stringify({ animation: { frametime: 1, frames: plan.map((frame, index) => ({ index, time: frame.ticks })) } }, null, 2),
     };
   } finally {
