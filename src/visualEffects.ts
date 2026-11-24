@@ -52,34 +52,21 @@ function hueToRgb(p: number, q: number, t: number): number {
   return p;
 }
 
-function hueShiftPixel(pixels: Uint8ClampedArray, i: number, shift: number): void {
-  if (pixels[i + 3] === 0) return;
-  const r = pixels[i] / 255, g = pixels[i + 1] / 255, b = pixels[i + 2] / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const light = (max + min) / 2;
-  const delta = max - min;
-  let hue = 0;
-  let saturation = delta === 0 ? 0 : delta / Math.max(1e-6, 1 - Math.abs(2 * light - 1));
-  if (delta !== 0) {
-    if (max === r) hue = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
-    else if (max === g) hue = ((b - r) / delta + 2) / 6;
-    else hue = ((r - g) / delta + 4) / 6;
-  }
-  // Neutral midtones still pick up the rainbow so grayscale Nextbots visibly become "gaming".
-  if (light > 0.03 && light < 0.97) saturation = Math.max(saturation, 0.55);
-  hue = (hue + shift + 10) % 1;
-  if (saturation === 0) return;
-  const q = light < 0.5 ? light * (1 + saturation) : light + saturation - light * saturation;
-  const p = 2 * light - q;
-  pixels[i] = Math.round(hueToRgb(p, q, hue + 1 / 3) * 255);
-  pixels[i + 1] = Math.round(hueToRgb(p, q, hue) * 255);
-  pixels[i + 2] = Math.round(hueToRgb(p, q, hue - 1 / 3) * 255);
-}
+/** A single translucent rainbow-colored sheet over the untouched source texture. */
+export const GAMING_OVERLAY_OPACITY = 0.45;
 
-/** Mutates RGBA pixels in place. Phase 0..1 is one full rainbow turn. */
-export function gamingHueShift(pixels: Uint8ClampedArray, phase: number): void {
-  const shift = Number.isFinite(phase) ? ((phase % 1) + 1) % 1 : 0;
-  for (let i = 0; i < pixels.length; i += 4) hueShiftPixel(pixels, i, shift);
+function overlayGamingPixel(pixels: Uint8ClampedArray, i: number, phase: number): void {
+  // Respect the original alpha mask: transparent background never becomes visible.
+  if (pixels[i + 3] === 0) return;
+  const hue = phase - Math.floor(phase);
+  const keep = 1 - GAMING_OVERLAY_OPACITY;
+  // The tint depends only on animation phase/position, never on the base pixel hue.
+  const r = hueToRgb(0, 1, hue + 1 / 3) * 255;
+  const g = hueToRgb(0, 1, hue) * 255;
+  const b = hueToRgb(0, 1, hue - 1 / 3) * 255;
+  pixels[i] = Math.round(pixels[i] * keep + r * GAMING_OVERLAY_OPACITY);
+  pixels[i + 1] = Math.round(pixels[i + 1] * keep + g * GAMING_OVERLAY_OPACITY);
+  pixels[i + 2] = Math.round(pixels[i + 2] * keep + b * GAMING_OVERLAY_OPACITY);
 }
 
 /** 0 is the selected source corner and 1 is the selected destination corner. */
@@ -102,7 +89,8 @@ function applyGaming(
 ): void {
   if (settings.gamingMode === 'off') return;
   if (settings.gamingMode === 'global') {
-    gamingHueShift(pixels, phase);
+    // A uniform, semi-transparent color sheet: every position receives one hue.
+    for (let i = 0; i < pixels.length; i += 4) overlayGamingPixel(pixels, i, phase);
     return;
   }
   const rainbowWidth = 0.9;
@@ -110,8 +98,8 @@ function applyGaming(
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const travel = diagonalProgress(x, y, width, height, settings.gamingDirection);
-      // Increasing phase moves a same-color band from the selected source corner to destination.
-      hueShiftPixel(pixels, i, phase - travel * rainbowWidth);
+      // The same translucent sheet, with rainbow hue flowing along the selected diagonal.
+      overlayGamingPixel(pixels, i, phase - travel * rainbowWidth);
     }
   }
 }
