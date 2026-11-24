@@ -233,6 +233,8 @@ function get<T extends HTMLElement>(id: string): T {
 // A unique document URL avoids an old iOS Safari/GitHub Pages HTML cache.
 // Hashed Vite assets are fetched again when the latest index is requested.
 get<HTMLButtonElement>('reload-latest').addEventListener('click', () => {
+  if (!get<HTMLElement>('editor-panel').hidden &&
+      !window.confirm('未適用の画像編集は再読み込みすると失われます。先に「画像編集を適用」することをおすすめします。最新版を読み込みますか？')) return;
   const url = new URL(window.location.href);
   url.searchParams.set('reload', String(Date.now()));
   window.location.assign(url.href);
