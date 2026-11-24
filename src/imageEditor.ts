@@ -39,6 +39,29 @@ export function imageFit(width: number, height: number, resolution: 128 | 256) {
     width: w, height: h, smoothing: scale < 1 };
 }
 /** High-quality downsampling; nearest-neighbor upsampling preserves pixel edges. */
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const fallback = () => {
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        const comma = dataUrl.indexOf(',');
+        if (comma < 0) throw new Error('PNGデータが不正です。');
+        const bytes = atob(dataUrl.slice(comma + 1));
+        const output = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) output[i] = bytes.charCodeAt(i);
+        resolve(new Blob([output], { type: 'image/png' }));
+      } catch {
+        reject(new Error('PNG生成に失敗しました'));
+      }
+    };
+    try {
+      canvas.toBlob(blob => blob && blob.size > 0 ? resolve(blob) : fallback(), 'image/png');
+    } catch {
+      fallback();
+    }
+  });
+}
+
 export async function fitImagePng(source: CanvasImageSource, width: number, height: number, resolution: 128 | 256 = 256): Promise<Blob> {
   const output = document.createElement('canvas');
   output.width = resolution; output.height = resolution;
@@ -49,7 +72,7 @@ export async function fitImagePng(source: CanvasImageSource, width: number, heig
   out.imageSmoothingQuality = 'high';
   out.drawImage(source, fit.x, fit.y, fit.width, fit.height);
   try {
-    return await new Promise<Blob>((resolve, reject) => output.toBlob(blob => blob && blob.size > 0 ? resolve(blob) : reject(new Error('PNG生成に失敗しました')), 'image/png'));
+    return await canvasToPngBlob(output);
   } finally {
     output.width = 1; output.height = 1;
   }
