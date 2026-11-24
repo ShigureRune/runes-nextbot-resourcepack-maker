@@ -3,6 +3,9 @@ import { NextbotSlotStore, SLOT_COUNT, slotStatus } from './slots';
 import type { SlotStatus, SlotTransferMode } from './slots';
 import { slotHasContent } from './slots';
 import { scrollGeometry } from './scrollBounds';
+import { InventoryAnimationController } from './inventoryAnimation';
+import { hasAnimatedVisualEffects, normalizeVisualEffects } from './visualEffects';
+import { normalizeGifSpeed } from './gifPlayback';
 import './inventory.css';
 
 /** Custom CSS inspired by Minecraft's 9-column creative inventory. */
@@ -11,7 +14,7 @@ export function mountInventory(
   store: NextbotSlotStore,
   onSelect: (id: number) => void,
   onModified: () => void,
-): { render: (selectedId: number) => void } {
+): { render: (selectedId: number) => void; setVisible: (visible: boolean) => void } {
   root.innerHTML = [
     '<div class="nb-tabs"><span class="nb-tab nb-tab-active" aria-hidden="true">▣ NEXTBOTS</span></div>',
     '<div class="nb-panel">',
@@ -132,6 +135,8 @@ export function mountInventory(
 
   const buttons: HTMLButtonElement[] = [];
   const urls = new Map<number, { blob: Blob; url: string }>();
+  const animatedCanvases = new Map<number, HTMLCanvasElement>();
+  const animations = new InventoryAnimationController(scroll);
 
   for (let id = 1; id <= SLOT_COUNT; id++) {
     const button = document.createElement('button');
@@ -186,24 +191,52 @@ export function mountInventory(
       button.setAttribute('aria-label', 'Slot ' + String(slot.id).padStart(2, '0') + '：' + statusNames[state] + (slot.name ? '、' + slot.name : ''));
       button.replaceChildren();
       const cached = urls.get(slot.id);
-      const png = slot.visual?.processed?.previewPng ?? slot.visual?.processed?.png;
+      const processed = slot.visual?.processed;
+      const png = processed?.previewPng ?? processed?.png;
       if (!png && cached) {
         URL.revokeObjectURL(cached.url);
         urls.delete(slot.id);
       }
-
-      if (state === 'complete' && png) {
+      if (png) {
         const image = document.createElement('img');
         image.src = imageUrl(slot.id, png);
         image.alt = '';
         image.className = 'nb-face';
         button.append(image);
-        const check = document.createElement('span');
-        check.className = 'nb-check';
-        check.textContent = '✓';
-        check.setAttribute('aria-hidden', 'true');
-        button.append(check);
+        // All 99 slots can play saved animations, including image-only partial slots.
+        if (processed?.animationMcmeta && processed.png && slot.visual) {
+          let canvas = animatedCanvases.get(slot.id);
+          if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.className = 'nb-face nb-animated-face';
+            canvas.setAttribute('aria-hidden', 'true');
+            animatedCanvases.set(slot.id, canvas);
+          }
+          button.append(canvas);
+          const effect = normalizeVisualEffects(slot.visual.effects, Boolean(slot.visual.gaming));
+          const interpolate = slot.visual.sourceFormat === 'png' && hasAnimatedVisualEffects(effect);
+          animations.update(slot.id, canvas, processed.png, processed.animationMcmeta,
+            normalizeGifSpeed(slot.visual.animationSpeed), interpolate);
+        } else {
+          animations.remove(slot.id);
+          animatedCanvases.delete(slot.id);
+        }
+        if (state === 'complete') {
+          const check = document.createElement('span');
+          check.className = 'nb-check';
+          check.textContent = '✓';
+          check.setAttribute('aria-hidden', 'true');
+          button.append(check);
+        } else {
+          const marker = document.createElement('span');
+          marker.className = 'nb-partial-mark';
+          marker.textContent = '!';
+          marker.setAttribute('aria-hidden', 'true');
+          button.append(marker);
+        }
       } else {
+        animations.remove(slot.id);
+        animatedCanvases.delete(slot.id);
         const number = document.createElement('span');
         number.className = 'nb-slot-number';
         number.textContent = String(slot.id).padStart(2, '0');
@@ -222,8 +255,9 @@ export function mountInventory(
     hint.textContent = '選択中：Slot ' + String(selectedId).padStart(2, '0') + '（' + statusNames[slotStatus(selected)] + '）';
     refreshOperationUi();
     updateRail();
+    animations.refresh();
   }
 
   requestAnimationFrame(updateRail);
-  return { render };
+  return { render, setVisible: visible => animations.setVisible(visible) };
 }

@@ -1,6 +1,6 @@
 /** Animated visual effects for Minecraft texture strips. Rendering stays bounded to 24 frames. */
-export const GAMING_FRAME_COUNT = 12;
-export const GAMING_FRAME_TICKS = 2;
+export const GAMING_FRAME_COUNT = 24;
+export const GAMING_FRAME_TICKS = 1;
 
 export type GamingMode = 'off' | 'global' | 'diagonal';
 export type GamingDirection = 'tl-br' | 'tr-bl' | 'bl-tr' | 'br-tl';

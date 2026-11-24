@@ -26,7 +26,7 @@ if (!app) throw new Error('App root missing');
 
 app.innerHTML = `
 <main>
-  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / LIVE-02</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
+  <header><h1>Rune's Nextbot Maker</h1><p class="subtitle">RESOURCE PACK WORKSHOP · NEXTBOT INVENTORY</p><p class="note">更新版 PHOTO-05 / FPS-60</p><a class="mod-shortcut" href="#mod-download">MODの入手案内 ↓</a></header>
   <section id="inventory-root" aria-label="Nextbotスロット一覧"></section>
   <p class="note inventory-help">スロットをタップすると専用編集画面が開きます。</p>
 
@@ -95,7 +95,7 @@ app.innerHTML = `
     </section>
     <section id="image-editor" class="image-editor" hidden aria-label="画像・動画フレーム編集">
       <h3>画像編集（PNG / GIF / 動画フレーム）</h3><p class="note">元画像の座標で範囲指定。元画像をドラッグして切り抜き範囲を選択。クリックだけならスポイトで色を選べます。適用するまで登録画像は変更されません。</p>
-      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用・動くエフェクトは自動再生）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後の動くプレビュー"></canvas><div class="effect-preview-controls"><span id="effect-live-status" aria-live="off">画像を読み込み中…</span><button id="effect-live-toggle" type="button" class="secondary-button" disabled>再生</button></div>
+      <canvas id="source-canvas" class="source-canvas" aria-label="元画像・ドラッグで切り抜き、クリックで色スポイト" tabindex="0"></canvas><p class="note">加工プレビュー（未適用・最大60FPSで自動再生）</p><canvas id="processed-preview" class="source-canvas" aria-label="加工後の動くプレビュー"></canvas><div class="effect-preview-controls"><span id="effect-live-status" aria-live="off">画像を読み込み中…</span><button id="effect-live-toggle" type="button" class="secondary-button" disabled>再生</button></div>
       <div class="fields">
         <label>切り抜き X<input id="crop-x" type="number" min="0" step="1"></label>
         <label>切り抜き Y<input id="crop-y" type="number" min="0" step="1"></label>
@@ -130,7 +130,7 @@ app.innerHTML = `
             <input id="enchant-strength" type="range" min="0" max="100" step="5" value="85">
           </label>
         </div>
-        <p class="effect-note">ゲーミングは元画像の色を直接変えず、半透明の虹色レイヤーを重ねます。全体モードは画像全体に同じ色、斜めモードは選択方向に虹色が流れます。ゲーミングとエンチャント風は重ね掛けOK。エンチャント風は網目のない滑らかな紫〜青紫の反射と、白に近い光沢の芯が斜めに流れる独自エフェクトです。白い画像でも見えます。静止画からのエンチャントは24フレーム、ゲーミングのみは12フレームのアニメーション素材になります。</p>
+        <p class="effect-note">ゲーミングは元画像の色を直接変えず、半透明の虹色レイヤーを重ねます。全体モードは画像全体に同じ色、斜めモードは選択方向に虹色が流れます。ゲーミングとエンチャント風は重ね掛けOK。エンチャント風は網目のない滑らかな紫〜青紫の反射と、白に近い光沢の芯が斜めに流れる独自エフェクトです。白い画像でも見えます。静止画エフェクトは最大24フレーム・ゲーム内20FPSで保存。編集プレビューは最大60FPSの滑らかな表示です（端末性能に応じて変動）。</p>
       </section>
       <div id="gif-range" hidden>
         <p class="note" id="gif-info">GIFフレームを読み込み中…</p>
@@ -221,7 +221,7 @@ app.innerHTML = `
       <p class="note">公式のJARファイルの配布先が登録されると、ボタン1回で直接ダウンロードできます。配布元やブラウザによってはダウンロード確認が表示される場合があります。</p>
     </div>
   </section>
-  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / LIVE-02</footer>
+  <footer>Rune's Nextbot Maker · Minecraft非公式ツール · 更新版 PHOTO-05 / FPS-60</footer>
 </main>`;
 
 function get<T extends HTMLElement>(id: string): T {
@@ -1116,6 +1116,7 @@ function openEditor(id: number): void {
   slotSelect.value = String(id);
   editorPanel.hidden = false;
   inventoryRoot.hidden = true;
+  inventory.setVisible(false);
   if (inventoryHelp) inventoryHelp.hidden = true;
   feedback.textContent = '';
   if (fromInventory) activateEditorTab('image');
@@ -1136,6 +1137,7 @@ function showInventory(): void {
   bitmapSlot = 0;
   editorPanel.hidden = true;
   inventoryRoot.hidden = false;
+  inventory.setVisible(true);
   if (inventoryHelp) inventoryHelp.hidden = false;
   render();
   inventoryRoot.scrollIntoView({ block: 'start' });

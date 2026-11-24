@@ -7,10 +7,10 @@ test('still images preview without a timer when effects are disabled', () => {
   assert.deepEqual(effectPreviewTiming(defaultVisualEffectSettings()), { frameCount: 1, delayMs: 0 });
 });
 
-test('gaming-only live preview matches the exported twelve-frame 2-tick loop', () => {
+test('gaming-only live preview matches the exported 24-frame 1-tick loop', () => {
   const defaults = defaultVisualEffectSettings();
   for (const gamingMode of ['global', 'diagonal'] as const) {
-    assert.deepEqual(effectPreviewTiming({ ...defaults, gamingMode }), { frameCount: 12, delayMs: 100 });
+    assert.deepEqual(effectPreviewTiming({ ...defaults, gamingMode }), { frameCount: 24, delayMs: 50 });
   }
 });
 
@@ -49,9 +49,9 @@ test('a live canvas actually advances frames, repaints changing RGB pixels, and 
     });
     assert.equal(player.isPlaying, true);
     await new Promise(resolve => setTimeout(resolve, 340));
-    assert.ok(changes.some(([index, count]) => count === 12 && index >= 1),
+    assert.ok(changes.some(([index, count]) => count === 24 && index >= 1),
       'animated preview must advance beyond frame zero');
-    assert.ok(frames.length >= 2);
+    assert.ok(frames.length >= 7, '60fps preview should render more often than a 20fps export');
     assert.notDeepEqual(frames[0].slice(0, 3), frames[frames.length - 1].slice(0, 3),
       'the canvas must receive visually different pixel colors');
     player.pause();
