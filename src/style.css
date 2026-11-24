@@ -92,3 +92,17 @@ box-shadow:3px 3px 0 #333;font-weight:850}
 .mod-download-link:hover{background:#579443;color:white}
 .mod-download-link[hidden]{display:none!important}
 .mod-release-body .note{margin-bottom:0}
+
+/* GIF playback inside the editor; the preview renders exactly the processed sprite frames. */
+.gif-live-panel{margin-top:14px;padding:12px;background:#b4b4b4;border:3px solid;border-color:#747474 #eee #eee #747474}
+.gif-live-panel h4{font:900 .91rem/1.4 ui-monospace,monospace;margin:0 0 9px}
+#gif-live-canvas{display:block;width:min(100%,256px);height:auto;aspect-ratio:1/1;object-fit:contain;image-rendering:pixelated;background:repeating-conic-gradient(#d7d7d7 0 25%,#898989 0 50%) 50%/20px 20px;border:4px solid;border-color:#666 #eee #eee #666}
+.gif-live-frame{display:block;margin:5px 0 12px;font:800 .82rem ui-monospace,monospace}
+.gif-live-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:end}
+.gif-live-controls button{width:100%;min-width:0}
+.gif-live-controls label{font-size:.82rem}
+.gif-live-controls .gif-live-loop{grid-column:1/-1;display:flex;align-items:center;gap:8px;min-height:36px}
+.gif-live-loop input{width:20px;height:20px;min-width:20px;min-height:20px;margin:0}
+#gif-live-status{margin:10px 0;padding:8px;border-left:4px solid #6a9b4f;background:#c5c5c5;min-height:2em}
+.gif-live-panel .note:last-child{margin-bottom:0}
+@media(max-width:430px){.gif-live-panel{padding:8px}.gif-live-controls{gap:8px}.gif-live-controls button{padding:9px 4px;font-size:.8rem}}

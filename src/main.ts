@@ -6,7 +6,8 @@ import { cropBounds, defaultImageSettings, loadPng, processPng, sampleColor } fr
 import type { ImageEditSettings } from './imageEditor';
 import { decodeAudio, encodeVorbisRange, waveformPeaks, MAX_AUDIO_BYTES, sampleRange } from './audioEditor';
 import { buildAssetArchive } from './exportArchive';
-import { inspectGif, processGif } from './gifEditor';
+import { inspectGif, processGif, validFrameRange } from './gifEditor';
+import { GifPreviewPlayer, previewTicksFromMcmeta } from './gifPlayback';
 import { inspectVideo, captureVideoFrame, assertVideoInfo, isVideoFilename, frameTime } from './videoEditor';
 import { MOD_DOWNLOAD_JAR_URL, verifiedJarUrl, jarFilename } from './modRelease';
 import './style.css';
@@ -53,6 +54,20 @@ app.innerHTML = `
           <label>GIF終了フレーム（含む）<input id="gif-end" type="number" min="1" step="1" value="1"></label>
         </div>
         <p class="note">GIFの全フレームに同じ切り抜き・クロマキーを適用します。最大24フレーム。再生速度は50ms単位に変換されます。</p>
+        <section class="gif-live-panel" aria-label="保存前のアニメーションプレビュー">
+          <h4>▶ 保存前のアニメーションプレビュー</h4>
+          <canvas id="gif-live-canvas" width="256" height="256" role="img" aria-label="編集中のGIFアニメーション"></canvas>
+          <span id="gif-live-frame" class="gif-live-frame" aria-hidden="true">フレーム：―</span>
+          <div class="gif-live-controls">
+            <button id="gif-live-toggle" class="secondary-button" type="button" disabled>再生</button>
+            <label>プレビュー速度
+              <select id="gif-live-speed"><option value="0.25">0.25倍</option><option value="0.5">0.5倍</option><option value="1" selected>1倍</option><option value="1.5">1.5倍</option><option value="2">2倍</option></select>
+            </label>
+            <label class="gif-live-loop"><input id="gif-live-loop" type="checkbox" checked>ループ再生</label>
+          </div>
+          <p id="gif-live-status" class="note" role="status" aria-live="polite">GIFを読み込むと表示されます。</p>
+          <p class="note">切り抜き・透過・フレーム範囲の変更を表示に反映します。速度とループ設定はプレビュー専用で、保存データには影響しません。</p>
+        </section>
       </div>
       <p class="note" id="crop-info"></p>
       <button type="button" id="apply-image">画像編集を適用</button>
@@ -413,6 +428,96 @@ let activeBitmap: ImageBitmap | null = null;
 let bitmapSlot = 0;
 let bitmapSource: Blob | null = null;
 let editToken = 0;
+const gifLiveCanvas = get<HTMLCanvasElement>('gif-live-canvas');
+const gifLiveStatus = get<HTMLParagraphElement>('gif-live-status');
+const gifLiveFrame = get<HTMLSpanElement>('gif-live-frame');
+const gifLiveToggle = get<HTMLButtonElement>('gif-live-toggle');
+const gifLiveSpeed = get<HTMLSelectElement>('gif-live-speed');
+const gifLiveLoop = get<HTMLInputElement>('gif-live-loop');
+const gifPlayer = new GifPreviewPlayer(gifLiveCanvas, (frame, total, playing) => {
+  gifLiveToggle.disabled = total === 0;
+  gifLiveToggle.textContent = playing ? '一時停止' : '再生';
+  gifLiveFrame.textContent = total ? `フレーム：${frame + 1} / ${total}` : 'フレーム：―';
+});
+let gifSource: Blob | null = null;
+let gifTotalFrames = 0;
+let gifPreviewKey: string | null = null;
+let gifPreviewVersion = 0;
+let gifPreviewAbort: AbortController | null = null;
+let gifPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearGifPreview(forgetSource = false): void {
+  ++gifPreviewVersion;
+  if (gifPreviewTimer !== null) clearTimeout(gifPreviewTimer);
+  gifPreviewTimer = null;
+  gifPreviewAbort?.abort();
+  gifPreviewAbort = null;
+  gifPreviewKey = null;
+  gifPlayer.clear();
+  if (forgetSource) {
+    gifSource = null;
+    gifTotalFrames = 0;
+  }
+}
+
+function scheduleGifPreview(): void {
+  if (get<HTMLElement>('editor-panel').hidden || !activeBitmap || gifTotalFrames < 1) return;
+  const id = currentSlot();
+  const visual = store.get(id).visual;
+  if (visual?.sourceFormat !== 'gif' || visual.source !== gifSource || bitmapSource !== gifSource) return;
+  const range = {
+    first: Number(get<HTMLInputElement>('gif-start').value),
+    last: Number(get<HTMLInputElement>('gif-end').value),
+  };
+  if (!validFrameRange(range, gifTotalFrames)) {
+    clearGifPreview();
+    gifLiveStatus.textContent = `フレーム範囲は1〜${gifTotalFrames}の間で開始 ≤ 終了にしてください。`;
+    return;
+  }
+  const settings = imageSettings();
+  const key = JSON.stringify({ range, settings });
+  if (gifPreviewKey === key) return;
+  clearGifPreview();
+  gifPreviewKey = key;
+  const version = gifPreviewVersion;
+  const controller = new AbortController();
+  gifPreviewAbort = controller;
+  const source = visual.source;
+  gifLiveStatus.textContent = '加工後のアニメーションプレビューを生成中…';
+  gifPreviewTimer = setTimeout(async () => {
+    gifPreviewTimer = null;
+    try {
+      // Exact same compositing, cropping, keying and Minecraft tick timing as GIF export.
+      const result = await processGif(source, settings, range, undefined, controller.signal);
+      if (controller.signal.aborted || version !== gifPreviewVersion ||
+          currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
+          store.get(id).visual?.source !== source) return;
+      const ticks = previewTicksFromMcmeta(result.animationMcmeta, result.frameCount);
+      const sprite = await createImageBitmap(result.png);
+      if (controller.signal.aborted || version !== gifPreviewVersion ||
+          currentSlot() !== id || get<HTMLElement>('editor-panel').hidden ||
+          store.get(id).visual?.source !== source) { sprite.close(); return; }
+      gifPlayer.setFrames(sprite, ticks);
+      gifLiveStatus.textContent = `加工後の${result.frameCount}フレームを再生中。再生速度・ループは保存データに影響しません。`;
+    } catch (error) {
+      if (!controller.signal.aborted && version === gifPreviewVersion) {
+        gifPreviewKey = null;
+        gifLiveStatus.textContent = 'プレビュー生成失敗：' +
+          (error instanceof Error ? error.message : '画像を確認してください。');
+      }
+    }
+  }, 350);
+}
+gifLiveToggle.addEventListener('click', () => gifPlayer.toggle());
+gifLiveSpeed.addEventListener('change', () => gifPlayer.setSpeed(Number(gifLiveSpeed.value)));
+gifLiveLoop.addEventListener('change', () => gifPlayer.setLoop(gifLiveLoop.checked));
+get<HTMLInputElement>('gif-start').addEventListener('input', scheduleGifPreview);
+get<HTMLInputElement>('gif-end').addEventListener('input', scheduleGifPreview);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) gifPlayer.pause();
+});
+window.addEventListener('pagehide', () => clearGifPreview(true));
+
 function imageSettings(): ImageEditSettings {
   const number = (id: string) => Number(get<HTMLInputElement>(id).value);
   return { x: number('crop-x'), y: number('crop-y'), width: number('crop-width'), height: number('crop-height'),
@@ -437,6 +542,7 @@ function schedulePreview(): void {
   const version = ++previewVersion;
   const bitmap = activeBitmap;
   if (!bitmap) return;
+  scheduleGifPreview();
   previewTimer = setTimeout(async () => {
     try {
       const png = await processPng(bitmap, imageSettings());
@@ -454,11 +560,21 @@ function schedulePreview(): void {
 }
 async function renderImageEditor(id: number): Promise<void> {
   const token = ++editToken;
+  if (get<HTMLElement>('editor-panel').hidden) {
+    clearGifPreview();
+    return;
+  }
   const slot = store.get(id);
+  const nextGifSource = slot.visual?.sourceFormat === 'gif' ? slot.visual.source : null;
+  if (gifSource !== nextGifSource) {
+    clearGifPreview(true);
+    gifSource = nextGifSource;
+  }
   const editSource = slot.visual?.sourceFormat === 'video'
     ? (videoFrameSelection?.slotId === id && videoFrameSelection.source === slot.visual.source ? videoFrameSelection.png : null)
     : slot.visual?.source;
   if (!slot.visual || !editSource) {
+    clearGifPreview();
     imageEditorPanel.hidden = true;
     get<HTMLElement>('gif-range').hidden = true;
     clearTimeout(previewTimer); ++previewVersion;
@@ -468,6 +584,8 @@ async function renderImageEditor(id: number): Promise<void> {
   imageEditorPanel.hidden = false;
   get<HTMLElement>('gif-range').hidden = slot.visual.sourceFormat !== 'gif';
   if (bitmapSlot === id && bitmapSource === editSource && activeBitmap) { updateCropInfo(); return; }
+  clearGifPreview();
+  gifLiveStatus.textContent = 'GIFのフレームを確認中…';
   activeBitmap?.close(); activeBitmap = null;
   imageEditStatus.textContent = '元画像を読み込み中…';
   try {
@@ -484,6 +602,7 @@ async function renderImageEditor(id: number): Promise<void> {
       if (token !== editToken || currentSlot() !== id) return;
       get<HTMLInputElement>('gif-start').value = '1';
       get<HTMLInputElement>('gif-end').value = String(info.count);
+      gifTotalFrames = info.count;
       get<HTMLElement>('gif-info').textContent = `GIF：${info.width}×${info.height}px、${info.count}フレーム`;
     }
     updateCropInfo();

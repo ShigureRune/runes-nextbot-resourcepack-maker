@@ -47,8 +47,14 @@ function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
 export async function processGif(
   source: Blob, settings: ImageEditSettings, range: GifFrameRange,
   onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ png: Blob; previewPng: Blob; animationMcmeta: string; frameCount: number }> {
+  const checkCanceled = () => {
+    if (signal?.aborted) throw new DOMException('GIFの処理をキャンセルしました。', 'AbortError');
+  };
+  checkCanceled();
   const { width, height, frames } = await parseGif(source);
+  checkCanceled();
   if (!validFrameRange(range, frames.length)) throw new RangeError('GIFの開始・終了フレームを確認してください。');
   const count = range.last - range.first + 1;
   const resolution = settings.resolution;
@@ -64,6 +70,7 @@ export async function processGif(
   let poster: Blob | null = null;
   const timings: Array<{ index: number; time: number }> = [];
   for (let index = 0; index < frames.length; index++) {
+    checkCanceled();
     const frame = frames[index];
     if (previous?.disposalType === 2) {
       ctx.clearRect(previous.dims.left, previous.dims.top, previous.dims.width, previous.dims.height);
@@ -81,9 +88,11 @@ export async function processGif(
       const bitmap = await createImageBitmap(composed);
       try {
         const processed = await processPng(bitmap, settings);
+        checkCanceled();
         if (!poster) poster = processed;
         const outputFrame = await createImageBitmap(processed);
         try {
+          checkCanceled();
           const frameIndex = index + 1 - range.first;
           spriteCtx.drawImage(outputFrame, 0, frameIndex * resolution);
           timings.push({ index: frameIndex, time: frameTicks(frame.delay) });
@@ -94,8 +103,11 @@ export async function processGif(
     previous = frame;
   }
   if (!poster) throw new Error('GIFのフレームを生成できませんでした。');
+  checkCanceled();
+  const png = await canvasPng(sprite);
+  checkCanceled();
   return {
-    png: await canvasPng(sprite), previewPng: poster,
+    png, previewPng: poster,
     animationMcmeta: JSON.stringify({ animation: { frametime: 1, frames: timings } }, null, 2),
     frameCount: count,
   };
