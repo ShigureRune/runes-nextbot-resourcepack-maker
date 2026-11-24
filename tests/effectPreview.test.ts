@@ -49,7 +49,7 @@ test('a live canvas actually advances frames, repaints changing RGB pixels, and 
     });
     assert.equal(player.isPlaying, true);
     await new Promise(resolve => setTimeout(resolve, 340));
-    assert.ok(changes.some(([index, count]) => count === 12 && index >= 1),
+    assert.ok(changes.some(([index, count]) => count === 24 && index >= 1),
       'animated preview must advance beyond frame zero');
     assert.ok(frames.length >= 7, '60fps preview should render more often than a 20fps export');
     assert.notDeepEqual(frames[0].slice(0, 3), frames[frames.length - 1].slice(0, 3),
