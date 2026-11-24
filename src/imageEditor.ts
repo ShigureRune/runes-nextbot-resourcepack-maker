@@ -30,6 +30,30 @@ export function chromaKey(data: Uint8ClampedArray, color: string, tolerance: num
 export async function loadPng(blob: Blob): Promise<ImageBitmap> {
   return createImageBitmap(blob);
 }
+/** Fit without distortion. Align all edges to whole output pixels. */
+export function imageFit(width: number, height: number, resolution: 128 | 256) {
+  const scale = Math.min(resolution / width, resolution / height);
+  const w = Math.max(1, Math.min(resolution, Math.round(width * scale)));
+  const h = Math.max(1, Math.min(resolution, Math.round(height * scale)));
+  return { x: Math.floor((resolution - w) / 2), y: Math.floor((resolution - h) / 2),
+    width: w, height: h, smoothing: scale < 1 };
+}
+/** High-quality downsampling; nearest-neighbor upsampling preserves pixel edges. */
+export async function fitImagePng(source: CanvasImageSource, width: number, height: number, resolution: 128 | 256 = 256): Promise<Blob> {
+  const output = document.createElement('canvas');
+  output.width = resolution; output.height = resolution;
+  const out = output.getContext('2d');
+  if (!out) throw new Error('Canvas 2Dを利用できません');
+  const fit = imageFit(width, height, resolution);
+  out.imageSmoothingEnabled = fit.smoothing;
+  out.imageSmoothingQuality = 'high';
+  out.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+  try {
+    return await new Promise<Blob>((resolve, reject) => output.toBlob(blob => blob && blob.size > 0 ? resolve(blob) : reject(new Error('PNG生成に失敗しました')), 'image/png'));
+  } finally {
+    output.width = 1; output.height = 1;
+  }
+}
 export async function processPng(source: ImageBitmap, settings: ImageEditSettings): Promise<Blob> {
   const bounds = cropBounds(settings, source.width, source.height);
   // Work on the original crop first so keying cannot alter pixels outside the selection.
@@ -43,16 +67,11 @@ export async function processPng(source: ImageBitmap, settings: ImageEditSetting
     chromaKey(pixels.data, settings.keyColor, settings.tolerance, settings.feather);
     context.putImageData(pixels, 0, 0);
   }
-  const output = document.createElement('canvas');
-  output.width = settings.resolution; output.height = settings.resolution;
-  const out = output.getContext('2d');
-  if (!out) throw new Error('Canvas 2Dを利用できません');
-  const scale = Math.min(output.width / crop.width, output.height / crop.height);
-  const w = crop.width * scale, h = crop.height * scale;
-  out.imageSmoothingEnabled = true;
-  out.imageSmoothingQuality = 'high';
-  out.drawImage(crop, (output.width - w) / 2, (output.height - h) / 2, w, h);
-  return new Promise((resolve, reject) => output.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG生成に失敗しました')), 'image/png'));
+  try {
+    return await fitImagePng(crop, crop.width, crop.height, settings.resolution);
+  } finally {
+    crop.width = 1; crop.height = 1;
+  }
 }
 export function sampleColor(source: ImageBitmap, x: number, y: number): string {
   const canvas = document.createElement('canvas');
