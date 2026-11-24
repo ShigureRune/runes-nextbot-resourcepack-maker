@@ -1,29 +1,64 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, enchantGlintIntensity, gamingHueShift,
+  applyVisualEffectsToPixels, defaultVisualEffectSettings, diagonalProgress, enchantGlintIntensity, GAMING_OVERLAY_OPACITY,
   hasAnimatedVisualEffects, normalizeVisualEffects, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS,
 } from '../src/visualEffects.ts';
 
-test('gaming hue rotates RGB while preserving alpha', () => {
-  const red = new Uint8ClampedArray([255, 0, 0, 123]);
-  gamingHueShift(red, 1 / 3);
-  assert.ok(red[1] > 240);
-  assert.ok(red[0] < 20 && red[2] < 20);
-  assert.equal(red[3], 123);
-});
-
-test('gaming also colorizes neutral midtones and keeps transparent pixels untouched', () => {
-  const first = new Uint8ClampedArray([128, 128, 128, 255, 10, 20, 30, 0]);
-  const second = new Uint8ClampedArray(first);
-  gamingHueShift(first, 0);
-  gamingHueShift(second, 0.5);
-  assert.notDeepEqual([...first.slice(0, 3)], [...second.slice(0, 3)]);
-  assert.deepEqual([...first.slice(4)], [10, 20, 30, 0]);
+test('global gaming composites a uniform semi-transparent red overlay instead of recoloring each source hue', () => {
+  const pixels = new Uint8ClampedArray([
+    40, 80, 120, 200,  200, 40, 70, 255,  33, 60, 90, 0,
+  ]);
+  applyVisualEffectsToPixels(pixels, 3, 1, 0, {
+    ...defaultVisualEffectSettings(), gamingMode: 'global',
+  });
+  assert.equal(GAMING_OVERLAY_OPACITY, 0.45);
+  assert.deepEqual([...pixels], [
+    137, 44, 66, 200,  225, 22, 39, 255,  33, 60, 90, 0,
+  ]);
   assert.equal(GAMING_FRAME_COUNT, 12);
   assert.equal(GAMING_FRAME_TICKS, 2);
 });
 
+test('global gaming uses exactly one tint at every position, including white and black images', () => {
+  const pixels = new Uint8ClampedArray([
+    0, 0, 0, 255,  0, 0, 0, 255,
+    0, 0, 0, 255,  0, 0, 0, 255,
+  ]);
+  const results: number[][] = [];
+  for (const phase of [0, 1 / 3, 2 / 3, 1]) {
+    const data = new Uint8ClampedArray(pixels);
+    applyVisualEffectsToPixels(data, 2, 2, phase, {
+      ...defaultVisualEffectSettings(), gamingMode: 'global',
+    });
+    for (let i = 4; i < data.length; i += 4) {
+      assert.deepEqual([...data.slice(i, i + 4)], [...data.slice(0, 4)]);
+    }
+    results.push([...data.slice(0, 3)]);
+  }
+  assert.ok(results[0][0] > results[0][1] && results[0][0] > results[0][2]);
+  assert.ok(results[1][1] > results[1][0] && results[1][1] > results[1][2]);
+  assert.ok(results[2][2] > results[2][0] && results[2][2] > results[2][1]);
+  assert.deepEqual(results[0], results[3]);
+});
+
+test('diagonal gaming changes the overlay hue across the image and reverses flow direction', () => {
+  const source = new Uint8ClampedArray(4 * 4 * 4);
+  for (let i = 3; i < source.length; i += 4) source[i] = 255;
+  const render = (direction: 'tl-br' | 'br-tl') => {
+    const pixels = new Uint8ClampedArray(source);
+    applyVisualEffectsToPixels(pixels, 4, 4, 0.25, {
+      ...defaultVisualEffectSettings(), gamingMode: 'diagonal', gamingDirection: direction,
+    });
+    return pixels;
+  };
+  const normal = render('tl-br');
+  const reversed = render('br-tl');
+  assert.notDeepEqual([...normal.slice(0, 3)], [...normal.slice(-4, -1)]);
+  assert.deepEqual([...normal.slice(0, 4)], [...reversed.slice(-4)]);
+  assert.deepEqual([...normal.slice(-4)], [...reversed.slice(0, 4)]);
+  assert.ok([...normal].every((n, i) => i % 4 !== 3 || n === 255));
+});
 
 test('diagonal gaming supports all four selected flow directions', () => {
   assert.equal(diagonalProgress(0, 0, 10, 10, 'tl-br'), 0);
