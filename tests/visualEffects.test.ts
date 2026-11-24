@@ -16,8 +16,8 @@ test('global gaming composites a uniform semi-transparent red overlay instead of
   assert.deepEqual([...pixels], [
     137, 44, 66, 200,  225, 22, 39, 255,  33, 60, 90, 0,
   ]);
-  assert.equal(GAMING_FRAME_COUNT, 12);
-  assert.equal(GAMING_FRAME_TICKS, 2);
+  assert.equal(GAMING_FRAME_COUNT, 24);
+  assert.equal(GAMING_FRAME_TICKS, 1);
 });
 
 test('global gaming uses exactly one tint at every position, including white and black images', () => {
