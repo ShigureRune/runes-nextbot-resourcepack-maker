@@ -13,7 +13,7 @@ export interface VisualEffectSettings {
 }
 
 export function defaultVisualEffectSettings(): VisualEffectSettings {
-  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 75 };
+  return { gamingMode: 'off', gamingDirection: 'tl-br', enchant: false, enchantStrength: 85 };
 }
 
 export function normalizeVisualEffects(value: unknown, legacyGaming = false): VisualEffectSettings {
@@ -141,10 +141,12 @@ function proceduralGlintLayer(
   const rotatedV = (x * sin + y * cos) * scale + phase * scrollV - seed * 0.37;
 
   // Bright diagonal ridges form the repeating texture motif.
-  const ridgePosition = Math.abs(fract(rotatedU + rotatedV * 0.31) - 0.5);
-  const core = 1 - smoothstep(0.045, 0.115, ridgePosition);
-  const halo = 1 - smoothstep(0.095, 0.29, ridgePosition);
-  const ridge = core * 0.72 + halo * 0.28;
+  // Periodic warp, rather than a fractional UV coefficient, keeps the loop seamless.
+  const warp = 0.055 * Math.sin((rotatedV * 2 + seed) * Math.PI * 2);
+  const ridgePosition = Math.abs(fract(rotatedU + warp) - 0.5);
+  const core = 1 - smoothstep(0.045, 0.145, ridgePosition);
+  const halo = 1 - smoothstep(0.13, 0.34, ridgePosition);
+  const ridge = core * 0.66 + halo * 0.48;
 
   // Break the ridges into an irregular shimmer instead of a perfectly clean sine stripe.
   const grainA = 0.5 + 0.5 * Math.sin((rotatedU * 5.0 + rotatedV * 9.0 + seed) * Math.PI * 2);
@@ -167,7 +169,7 @@ export function enchantGlintIntensity(nx: number, ny: number, phase: number): nu
   const layerA = proceduralGlintLayer(x, y, p, Math.PI / 18, 3.3, -1, 2, 0.13);
   const layerB = proceduralGlintLayer(x, y, p, -5 * Math.PI / 18, 4.8, 2, 1, 0.61);
   const crossing = Math.sqrt(layerA * layerB);
-  return Math.max(0, Math.min(1, layerA * 0.96 + layerB * 0.72 + crossing * 0.42));
+  return Math.max(0, Math.min(1, layerA * 1.05 + layerB * 0.82 + crossing * 0.48));
 }
 
 function screenChannel(base: number, tint: number, amount: number): number {
@@ -189,15 +191,16 @@ function applyEnchantGlint(
       const mask = enchantGlintIntensity(nx, ny, phase);
       if (mask <= 0.001) continue;
 
-      const amount = Math.min(1, mask * opacity * 1.18);
+      const amount = Math.min(1, Math.pow(mask, 0.82) * opacity * 1.35);
       const coolShift = 0.5 + 0.5 * Math.sin((nx - ny + phase) * Math.PI * 2);
-      const red = 205 + coolShift * 36;
-      const green = 54 + coolShift * 46;
+      const highlight = smoothstep(0.65, 1, mask);
+      const red = 205 + coolShift * 25 + highlight * 18;
+      const green = 45 + coolShift * 30 + highlight * 70;
       const blue = 255;
       // Screen makes dark textures luminous, but pure white cannot become
       // brighter. Add a saturated violet tint on light textures as well.
       const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
-      const tintMix = smoothstep(145, 245, luminance) * amount * 0.60;
+      const tintMix = smoothstep(150, 245, luminance) * amount * 0.85;
       const tint = (base: number, color: number) =>
         Math.round(screenChannel(base, color, amount) * (1 - tintMix) + color * tintMix);
       pixels[i] = tint(pixels[i], red);
