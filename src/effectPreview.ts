@@ -1,5 +1,5 @@
 import {
-  applyVisualEffectsToPixels, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS,
+  applyVisualEffectsToPixels, GAMING_FRAME_COUNT, GAMING_FRAME_TICKS, ENCHANT_FRAME_TICKS,
   hasAnimatedVisualEffects, normalizeVisualEffects,
 } from './visualEffects.ts';
 import type { VisualEffectSettings } from './visualEffects.ts';
@@ -9,7 +9,7 @@ export function effectPreviewTiming(rawSettings: VisualEffectSettings): { frameC
   const settings = normalizeVisualEffects(rawSettings);
   if (!hasAnimatedVisualEffects(settings)) return { frameCount: 1, delayMs: 0 };
   return settings.enchant
-    ? { frameCount: 24, delayMs: 50 }
+    ? { frameCount: 24, delayMs: ENCHANT_FRAME_TICKS * 50 }
     : { frameCount: GAMING_FRAME_COUNT, delayMs: GAMING_FRAME_TICKS * 50 };
 }
 

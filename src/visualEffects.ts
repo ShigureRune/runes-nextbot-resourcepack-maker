@@ -1,6 +1,8 @@
 /** Animated visual effects for Minecraft texture strips. Rendering stays bounded to 24 frames. */
 export const GAMING_FRAME_COUNT = 24;
 export const GAMING_FRAME_TICKS = 1;
+/** Enchant animation is 3x slower than the previous 1-tick version. */
+export const ENCHANT_FRAME_TICKS = 3;
 
 export type GamingMode = 'off' | 'global' | 'diagonal';
 export type GamingDirection = 'tl-br' | 'tr-bl' | 'bl-tr' | 'br-tl';
@@ -115,35 +117,67 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 }
 
 /**
- * Smooth specular ribbon, independently generated without game assets.
- * One diagonal coordinate drives the entire reflection: no crossing lattice,
- * speckle, or second stripe direction. A full phase is exactly one repeat.
+ * A handmade two-direction enchantment shimmer made from thin, separated lines.
+ * No Minecraft texture assets are included. A full phase is one seamless loop.
+ *
+ * Each direction has several narrow streaks; the crossing direction is dimmer
+ * to keep the image readable instead of turning the result into a bright grid.
  */
-function glintDistance(nx: number, ny: number, phase: number): number {
+function glintDistancePrimary(nx: number, ny: number, phase: number): number {
   const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
   const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
   const p = Number.isFinite(phase) ? phase : 0;
   return fract(x * 0.78 + y * 0.52 - p + 0.09) - 0.5;
 }
 
-function ribbonMask(distance: number): number {
-  // A soft violet band with an unlit gap, not a full-screen purple wash.
-  return 1 - smoothstep(0.06, 0.27, Math.abs(distance));
+function glintDistanceSecondary(nx: number, ny: number, phase: number): number {
+  const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
+  const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
+  const p = Number.isFinite(phase) ? phase : 0;
+  return fract((1 - x) * 0.74 + y * 0.56 - p + 0.27) - 0.5;
+}
+
+function thinLine(distance: number, center: number, width: number): number {
+  // Circular distance prevents the streaks from popping at the loop seam.
+  const delta = distance - center;
+  const wrapped = Math.abs(delta - Math.floor(delta + 0.5));
+  return 1 - smoothstep(width * 0.35, width, wrapped);
+}
+
+function primaryStreaks(distance: number): number {
+  return Math.min(1,
+    thinLine(distance, -0.17, 0.017) * 0.4 +
+    thinLine(distance, -0.065, 0.019) * 0.72 +
+    thinLine(distance, 0.045, 0.022) +
+    thinLine(distance, 0.17, 0.016) * 0.42
+  );
+}
+
+function secondaryStreaks(distance: number): number {
+  return Math.min(1,
+    thinLine(distance, -0.13, 0.018) * 0.55 +
+    thinLine(distance, 0.015, 0.022) +
+    thinLine(distance, 0.15, 0.017) * 0.52
+  );
+}
+
+export function enchantGlintPrimaryIntensity(nx: number, ny: number, phase: number): number {
+  return primaryStreaks(glintDistancePrimary(nx, ny, phase));
+}
+
+export function enchantGlintSecondaryIntensity(nx: number, ny: number, phase: number): number {
+  return secondaryStreaks(glintDistanceSecondary(nx, ny, phase));
 }
 
 export function enchantGlintIntensity(nx: number, ny: number, phase: number): number {
-  return ribbonMask(glintDistance(nx, ny, phase));
+  return Math.min(1,
+    enchantGlintPrimaryIntensity(nx, ny, phase) +
+    0.55 * enchantGlintSecondaryIntensity(nx, ny, phase));
 }
 
 /**
- * Subtle, satin-like purple glint, inspired by the unobtrusive look of
- * modern Minecraft enchantment overlays. All colors are generated locally;
- * no Minecraft texture or rendering asset is embedded.
- *
- * Unlike the old screen/white-specular formula, this composites a low-opacity
- * purple sheet into the original RGB. Bright and white pixels therefore keep
- * their structure, black pixels receive a readable faint purple glimmer,
- * and no color channel gets an overpowering white hotspot.
+ * Low-opacity violet overlay: preserve the source alpha, face details and
+ * original colors. There are no incandescent white cores or broad solid bands.
  */
 function applyEnchantGlint(
   pixels: Uint8ClampedArray, width: number, height: number, phase: number, strength: number,
@@ -156,27 +190,16 @@ function applyEnchantGlint(
       const i = (y * width + x) * 4;
       if (pixels[i + 3] === 0) continue;
       const nx = width <= 1 ? 0 : x / (width - 1);
-      const distance = glintDistance(nx, ny, phase);
-      const band = ribbonMask(distance);
-      if (band < 0.001) continue;
-
-      // A faint, narrower satin reflection travels inside the broad violet band.
-      // Both use the same diagonal, avoiding the old cross-hatched grid artifact.
-      const core = (1 - smoothstep(0.012, 0.085, Math.abs(distance - 0.018))) * band;
-      const cool = smoothstep(-0.22, 0.22, distance);
-      const violetR = 152 - 32 * cool;
-      const violetG = 82 + 16 * cool;
-      const violetB = 213 + 18 * cool;
-      const tintOpacity = power * (0.24 * band + 0.04 * core);
-      const satinOpacity = power * 0.03 * core;
-      // Preserve image alpha, details and perceived brightness. No additive white.
-      const mix = (base: number, violet: number, highlight: number) => {
-        const tinted = base + (violet - base) * tintOpacity;
-        return Math.round(tinted + (highlight - tinted) * satinOpacity);
-      };
-      pixels[i] = mix(pixels[i], violetR, 205);
-      pixels[i + 1] = mix(pixels[i + 1], violetG, 195);
-      pixels[i + 2] = mix(pixels[i + 2], violetB, 232);
+      const first = enchantGlintPrimaryIntensity(nx, ny, phase);
+      const second = enchantGlintSecondaryIntensity(nx, ny, phase);
+      const opacity = Math.min(0.36, power * (first * 0.24 + second * 0.115));
+      if (opacity <= 0.0001) continue;
+      const red = 151 - 20 * second;
+      const green = 86 + 12 * second;
+      const blue = 218 + 10 * second;
+      pixels[i] = Math.round(pixels[i] + (red - pixels[i]) * opacity);
+      pixels[i + 1] = Math.round(pixels[i + 1] + (green - pixels[i + 1]) * opacity);
+      pixels[i + 2] = Math.round(pixels[i + 2] + (blue - pixels[i + 2]) * opacity);
     }
   }
 }
@@ -190,7 +213,10 @@ export function applyVisualEffectsToPixels(
   }
   const settings = normalizeVisualEffects(rawSettings);
   const normalizedPhase = Number.isFinite(phase) ? ((phase % 1) + 1) % 1 : 0;
-  applyGaming(pixels, width, height, normalizedPhase, settings);
+  // A combined gaming+enchant animation keeps the rainbow at its old speed:
+  // the enchant loop is 3x longer, while the rainbow completes 3 laps.
+  const gamingPhase = settings.enchant ? normalizedPhase * ENCHANT_FRAME_TICKS : normalizedPhase;
+  applyGaming(pixels, width, height, gamingPhase, settings);
   if (settings.enchant) applyEnchantGlint(pixels, width, height, normalizedPhase, settings.enchantStrength);
 }
 
@@ -255,7 +281,7 @@ export async function createVisualEffectAnimation(
       frameContext.putImageData(pixels, 0, 0);
       spriteContext.drawImage(frameCanvas, 0, index * size);
       if (index === 0) previewPng = await canvasPng(frameCanvas);
-      frames.push({ index, time: settings.enchant && frameCount === 24 ? 1 : GAMING_FRAME_TICKS });
+      frames.push({ index, time: settings.enchant ? ENCHANT_FRAME_TICKS : GAMING_FRAME_TICKS });
     }
     if (!previewPng) throw new Error('エフェクトプレビューを生成できませんでした。');
     return {
