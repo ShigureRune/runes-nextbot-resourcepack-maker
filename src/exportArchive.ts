@@ -23,7 +23,7 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
   }
 
   const zip = new JSZip();
-  const soundEntries: Record<string, { sounds: Array<{ name: string; stream: boolean }> }> = {};
+  const soundEntries: Record<string, { replace: boolean; sounds: Array<{ name: string; stream: boolean }> }> = {};
   const ids = new Set<number>();
   for (const slot of completed) {
     if (!Number.isInteger(slot.id) || slot.id < 1 || slot.id > 99 || ids.has(slot.id)) {
@@ -42,7 +42,7 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
     const sound = `assets/nextbotchaos/sounds/${soundName}.ogg`;
     zip.file(texture, visual.png);
     zip.file(sound, audio.ogg);
-    soundEntries[soundName] = { sounds: [{ name: `nextbotchaos:${soundName}`, stream: false }] };
+    soundEntries[soundName] = { replace: true, sounds: [{ name: `nextbotchaos:${soundName}`, stream: false }] };
 
     if (visual.animationMcmeta) {
       zip.file(texture + '.mcmeta',
@@ -53,6 +53,7 @@ export async function buildAssetArchive(slots: readonly NextbotSlot[]): Promise<
   // Keep the Mod's original sound ID usable with the first configured slot.
   const first = String(completed[0].id).padStart(2, '0');
   soundEntries.nextbot_chase = {
+    replace: true,
     sounds: [{ name: `nextbotchaos:nextbot_chase_${first}`, stream: false }],
   };
 
